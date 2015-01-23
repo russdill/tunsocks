@@ -1,0 +1,197 @@
+tunsocks
+--------
+
+tunsocks is a user-level SOCKS and port forwarding proxy for use with VPNs
+that typically interact with tun devices. Rather than passing bytes to and
+from the tun device, they can pass the data to and from this user-level
+program. tunsocks is implemented using lwIP.
+
+tunsocks has been tested with OpenConnect:
+
+http://www.infradead.org/openconnect/
+
+Usage
+-----
+
+usage: tunsocks <options>
+
+    -L [bind_address:]port:host:hostport
+    -D [bind_address:]port
+    -R port:host:hostport
+    -k keep alive interval (seconds)
+    -m mtu (env INTERNAL_IP4_MTU)
+    -s domain_search[,domain_search,...] (env CISCO_DEF_DOMAIN)
+    -d dns,[dns,...] (env INTERNAL_IP4_DNS)
+    -i ip address (env INTERNAL_IP4_ADDRESS)
+    -n netmask
+    -g gateway
+    -p pcap_file
+
+Some options also accept input through environmental veriables (see env
+above). By default, tunsocks accepts network traffic on stdin, and outputs
+network traffic on stdout. The "VPNFD" environmental variable can be used
+to pass an alternate fd.
+
+-L [bind_address:]port:host:hostport
+
+	Listen on a local port and optional bind address. When a connection
+	is accepted, tunsocks makes a connection on the remote network to
+	host:hostport and then pipes the two connections together. If
+	host port is not specified, it defaults to port.
+
+-D [bind_address:]port
+
+	Start a SOCKS proxy on a local port and optional bind address. The
+	SOCKS proxy supports SOCKS 4, 4A, and 5. The BIND command is
+	accepted. If bind_address is not specified, it defaults to
+	localhost.
+
+-R port:host:hostport
+
+	tunsocks listens on the specified port on the remote network. When
+	a connection is accepted, tunsocks connects to host:hostport on
+	the local network and then pipes the two connections together. If
+	hostport is not specified, it defaults to port, if host is not
+	specified, it defaults to localhost.
+
+-k keep alive interval (seconds)
+
+	TCP keepalive options for all connections on the remote network.
+
+-m mtu (env INTERNAL_IP4_MTU)
+
+	MTU used for the remote network.
+
+-s domain_search[,domain_search,...] (env CISCO_DEF_DOMAIN)
+
+	Domain search order. Follows the same order as resolv.conf(5) search
+	with ndots fixed at 1.
+
+-d dns,[dns,...] (env INTERNAL_IP4_DNS)
+
+	DNS servers for the remote network.
+
+-i ip address (env INTERNAL_IP4_ADDRESS)
+
+	IP address to use on the remote network.
+
+-n netmask
+
+	Netmask to use on the remote network.
+
+-g gateway
+
+	IP gateway to use on the remote network.
+
+-p pcap_file
+
+	If specified, all traffic is saved to the specified file in pcap
+	format.
+
+
+Examples
+--------
+
+	openconnect --script-tun --script "tunsocks -D 8080 -R ssh \
+		-L 8888:webproxy.example.com:80" vpn.example.com
+
+tunsocks is configured to start a SOCKS server on localhost at port 8080.
+SSH connections on the remote network to our given IP address will connect
+to our local SSH server. A HTTP proxy is available on the remote network
+for accessing specific hosts, it is accessible via localhost:8888.
+Openconnect sets the other necessary parameters via environmental variables.
+
+
+tsocks configuration
+--------------------
+
+tsocks can easily wrap applications via an LD_PRELOAD so that network
+requests instead travel via a proxy.
+
+/etc/tsocks.conf:
+server = 127.0.0.1
+server_type = 5
+server_port = 8080
+
+tsocks nc 10.15.12.12 55
+
+
+git configuration using socat
+-----------------------------
+
+This configures git to use the localhost:8080 SOCKS proxy for connection
+to git.example.com.
+
+~/.gitconfig:
+[core]
+	gitproxy=/home/joeuser/bin/git-proxy-wrapper for git.example.com
+
+~/bin/git-proxy-wrapper:
+exec socat STDIO SOCKS4A:localhost:$1:$2,socksport=8080
+
+
+ssh configuration using socat
+-----------------------------
+
+This utilizes the localhost:8080 SOCKS proxy for any ssh connections in the
+*.intranet.example.com domain
+
+~/.ssh/config:
+Host *.intranet.example.com
+ProxyCommand socat - SOCKS4A:localhost:%h:%p,socksport=8080
+
+
+Web browser and general desktop application configuration
+---------------------------------------------------------
+
+Although web browsers and general desktop applications can be configured
+to use a single proxy easily, it is much more convenient to utilize a
+proxy.pac file. A proxy.pac file allows sets of rules for determining which
+connections should utilize the proxy.
+
+function FindProxyForURL(url, host) {
+
+	// This rule allows single word domain names, such as "time" to
+	// resolve via the VPN. This is common on corporate intranets.
+	// tunsocks utilizes the domain search list in this case
+	if (isPlainHostName(host))
+		return "SOCKS5 127.0.0.1:8080";
+
+	// proxy.pac can be used to easily funnel entire domains
+	if (dnsDomainIs(host, ".intranet.example.com") ||
+	    dnsDomainIs(host, ".documents.example.com"))
+		return "SOCKS5 127.0.0.1:8080";
+
+	// Or single hosts
+	if (host == "passwords.example.com" || host == "10.55.22.55")
+		return "SOCKS5 127.0.0.1:8080";
+
+	// This is a slightly more complex example where certain hosts on the
+	// intranet are only accessible by going through a web proxy available
+	// via the VPN. A rule '-L 8888:webproxy.example.com:80' is added to
+	// the tunsocks command line options. The following proxy.pac rule then
+	// forwards requests for the given domain to that webproxy
+	if (dnsDomainIs(host, "*.local.example.com"))
+		return "PROXY localhost:8888";
+
+	// Everything else should access the Internet directly, without the
+	// VPN
+	return "DIRECT";
+}
+
+proxy.pac files can support a wide variety of configurations, even multiplexing
+between multiple VPN connections. A proxy.pac file is generally assigned under
+the application or system proxy configuration page by selecting 'Automatic'
+and then using 'file:///path/to/proxy.pac' in the 'Configuration URL' field.
+
+Credits
+-------
+
+tunsocks was written by Russ Dill <russ.dill@gmail.com> with inspiration from
+ocproxy by David Edmondson <dme@dme.org> and Kevin Cernekee <cernekee@gmail.com>
+
+License
+-------
+
+tunsocks is complied into and licensed under the same license as lwIP. For
+a copy of the license, see lwip/COPYING.
