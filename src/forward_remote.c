@@ -14,7 +14,7 @@
 struct forward_data {
 	struct addrinfo *remote;
 	struct event_base *base;
-	int *keep_alive;
+	int keep_alive;
 };
 
 static void forward_tcp_err(void *ctx, err_t err)
@@ -52,10 +52,10 @@ static err_t forward_tcp_accept(void *ctx, struct tcp_pcb *pcb, err_t err)
 
 	pcb->flags |= TF_NODELAY;
 
-	if (*data->keep_alive) {
+	if (data->keep_alive) {
 		pcb->so_options |= SOF_KEEPALIVE;
-		pcb->keep_intvl = *data->keep_alive;
-		pcb->keep_idle = *data->keep_alive;
+		pcb->keep_intvl = data->keep_alive;
+		pcb->keep_idle = data->keep_alive;
 	}
 
 	tcp_arg(pcb, bev);
@@ -66,7 +66,7 @@ static err_t forward_tcp_accept(void *ctx, struct tcp_pcb *pcb, err_t err)
 
 
 int forward_remote(struct event_base *base, const char *remote_port,
-	const char *local_host, const char *local_port, int *keep_alive)
+	const char *local_host, const char *local_port, int keep_alive)
 {
 	u_int16_t port;
 	char *endptr;

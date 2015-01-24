@@ -194,7 +194,7 @@ socks4_read_hdr(struct socks_data *sdata)
 }
 
 void
-socks4_start(struct bufferevent *bev, int *keep_alive)
+socks4_start(struct bufferevent *bev, int keep_alive)
 {
 	struct socks4_data *data;
 	struct socks_data *sdata;

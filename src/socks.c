@@ -68,10 +68,10 @@ socks_tcp_accept(void *ctx, struct tcp_pcb *pcb, err_t err)
 	data->pcb = pcb;
 
 	pcb->flags |= TF_NODELAY;
-	if (*data->keep_alive) {
+	if (data->keep_alive) {
 		pcb->so_options |= SOF_KEEPALIVE;
-		pcb->keep_intvl = *data->keep_alive;
-		pcb->keep_idle = *data->keep_alive;
+		pcb->keep_intvl = data->keep_alive;
+		pcb->keep_idle = data->keep_alive;
 	}
 
 	data->connect_ok(data);
@@ -144,10 +144,10 @@ socks_tcp_connect(struct socks_data *data)
 		data->connect_failed(data);
 
 	pcb->flags |= TF_NODELAY;
-	if (*data->keep_alive) {
+	if (data->keep_alive) {
 		pcb->so_options |= SOF_KEEPALIVE;
-		pcb->keep_intvl = *data->keep_alive;
-		pcb->keep_idle = *data->keep_alive;
+		pcb->keep_intvl = data->keep_alive;
+		pcb->keep_idle = data->keep_alive;
 	}
 
 	ret = tcp_connect(pcb, &data->ipaddr, data->port, socks_tcp_connect_ok);
@@ -186,7 +186,7 @@ socks_request(struct socks_data *data, int n, void (*cb)(struct socks_data*))
 static void
 socks_version(struct bufferevent *bev, void *ctx)
 {
-	int *keep_alive = ctx;
+	int keep_alive = (int) ctx;
 	u_char version;
 
 	bufferevent_read(bev, &version, 1);
@@ -232,7 +232,7 @@ socks_accept(struct evconnlistener *evl, evutil_socket_t new_fd,
 
 int
 socks_listen(struct event_base *base, const char *host, const char *port,
-				int *keep_alive)
+				int keep_alive)
 {
 	struct evconnlistener *evl;
 	struct addrinfo hints;
@@ -249,7 +249,7 @@ socks_listen(struct event_base *base, const char *host, const char *port,
 		return ret;
 	}
 
-	evl = evconnlistener_new_bind(base, socks_accept, keep_alive,
+	evl = evconnlistener_new_bind(base, socks_accept, (void *) keep_alive,
 		LEV_OPT_CLOSE_ON_FREE | LEV_OPT_CLOSE_ON_EXEC |
 		LEV_OPT_REUSEABLE | LEV_OPT_DEFERRED_ACCEPT, 10,
 		result->ai_addr, result->ai_addrlen);

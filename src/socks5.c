@@ -237,7 +237,7 @@ socks5_read_n_auth(struct socks_data *sdata)
 }
 
 void
-socks5_start(struct bufferevent *bev, int *keep_alive)
+socks5_start(struct bufferevent *bev, int keep_alive)
 {
 	struct socks5_data *data;
 	struct socks_data *sdata;

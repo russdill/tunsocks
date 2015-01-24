@@ -15,7 +15,7 @@
 struct forward_remote {
 	char *host;
 	unsigned short port;
-	int *keep_alive;
+	int keep_alive;
 };
 
 struct forward_data {
@@ -64,10 +64,10 @@ static void forward_host_found(struct host_data *hdata)
 	}
 
 	pcb->flags |= TF_NODELAY;
-	if (*data->remote->keep_alive) {
+	if (data->remote->keep_alive) {
 		pcb->so_options |= SOF_KEEPALIVE;
-		pcb->keep_intvl = *data->remote->keep_alive;
-		pcb->keep_idle = *data->remote->keep_alive;
+		pcb->keep_intvl = data->remote->keep_alive;
+		pcb->keep_idle = data->remote->keep_alive;
 	}
 
 	ret = tcp_connect(pcb, &data->host.ipaddr, data->remote->port,
@@ -119,7 +119,7 @@ static void forward_local_accept(struct evconnlistener *evl,
 
 int forward_local(struct event_base *base,
 	const char *local_host, const char *local_port,
-	const char *remote_host, const char *remote_port, int *keep_alive)
+	const char *remote_host, const char *remote_port, int keep_alive)
 {
 	struct evconnlistener *evl;
 	struct addrinfo hints;

@@ -21,6 +21,7 @@ struct conn_info {
 	char *bind_port;
 	char *host;
 	char *host_port;
+	struct conn_info *next;
 };
 
 static char *tokenize(const char *str, const char *sep, char **endptr)
@@ -41,27 +42,24 @@ static char *tokenize(const char *str, const char *sep, char **endptr)
 	return strndup(str, i);
 }
 
-static int parse_conn_info(const char *str, struct conn_info *info)
+static struct conn_info *parse_conn_info(const char *str, int fmax)
 {
 	int fields = 1;
 	int f0;
 	const char *field[4] = {NULL, NULL, NULL, NULL};
-
-	free(info->bind);
-	free(info->bind_port);
-	free(info->host);
-	free(info->host_port);
-	info->bind = info->bind_port = info->host = info->host_port = NULL;
+	struct conn_info *info;
 
 	for (field[0] = str; *str; str++)
 		if (*str == ':') {
-			if (fields == 4)
-				return -1;
+			if (fields == fmax)
+				return NULL;
 			field[fields] = str + 1;
 			fields++;
 		}
 
 	f0 = fields == 4 ? 1 : 0;
+
+	info = calloc(1, sizeof(*info));
 
 	info->bind_port = strndup(field[f0], field[f0 + 1] - field[f0] - 1);
 
@@ -82,7 +80,16 @@ static int parse_conn_info(const char *str, struct conn_info *info)
 	else
 		info->host = NULL;
 
-	return fields;
+	return info;
+}
+
+static void free_conn_info(struct conn_info *info)
+{
+	free(info->bind);
+	free(info->bind_port);
+	free(info->host);
+	free(info->host_port);
+	free(info);
 }
 
 static void print_usage(const char *argv0)
@@ -92,13 +99,14 @@ static void print_usage(const char *argv0)
 "    -L [bind_address:]port:host:hostport\n"
 "    -D [bind_address:]port\n"
 "    -R port:host:hostport\n"
+"    -g Allow non-local clients (command line compatibility for ocproxy)\n"
 "    -k keep alive interval (seconds)\n"
 "    -m mtu (env INTERNAL_IP4_MTU)\n"
 "    -s domain_search[,domain_search,...] (env CISCO_DEF_DOMAIN)\n"
 "    -d dns,[dns,...] (env INTERNAL_IP4_DNS)\n"
 "    -i ip address (env INTERNAL_IP4_ADDRESS)\n"
 "    -n netmask\n"
-"    -g gateway\n"
+"    -G gateway\n"
 #ifdef USE_PCAP
 "    -p pcap_file\n"
 #endif
@@ -110,7 +118,7 @@ int main(int argc, char *argv[])
 {
 	int c;
 	int keep_alive;
-	int ret;
+	int non_local;
 	struct netif *netif;
 	int dns_count;
 	char *str;
@@ -123,21 +131,24 @@ int main(int argc, char *argv[])
 	ip_addr_t gateway;
 	ip_addr_t dns;
 	struct event_base *base;
-	struct conn_info info;
 	char *pcap_file;
+	struct conn_info *local;
+	struct conn_info *remote;
+	struct conn_info *socks;
+	struct conn_info *info;
 
 	ip_addr_set_zero(&ipaddr);
 	ip_addr_set_zero(&netmask);
 	ip_addr_set_zero(&gateway);
 
+	local = remote = socks = NULL;
 	dns_count = 0;
 	keep_alive = 0;
 	fd_in = 0;
 	fd_out = 1;
 	mtu = 0;
 	pcap_file = NULL;
-
-	memset(&info, 0, sizeof(info));
+	non_local = 0;
 
 	base = event_base_new();
 	lwip_init();
@@ -167,40 +178,32 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	while ((c = getopt(argc, argv, "L:D:R:k:m:s:d:i:n:g:p:h")) != -1) {
+	while ((c = getopt(argc, argv, "L:D:R:k:m:s:d:i:n:G:p:gh")) != -1) {
 
 		switch (c) {
 		case 'L':
-			ret = parse_conn_info(optarg, &info);
-			if (ret < 0)
+			info = parse_conn_info(optarg, 4);
+			if (!info)
 				print_usage(argv[0]);
 
-			str = info.bind && info.bind[0] ?
-					info.bind : "localhost";
-
-			if (forward_local(base, str, info.bind_port,
-				info.host, info.host_port, &keep_alive) < 0)
-				return -1;
+			info->next = local;
+			local = info;
 			break;
 		case 'D':
-			ret = parse_conn_info(optarg, &info);
-			if (ret < 0 || ret > 2)
+			info = parse_conn_info(optarg, 2);
+			if (!info)
 				print_usage(argv[0]);
 
-			str = info.bind && info.bind[0] ?
-					info.bind : "localhost";
-			if (socks_listen(base, str, info.bind_port,
-							&keep_alive) < 0)
-				return -1;
+			info->next = socks;
+			socks = info;
 			break;
 		case 'R':
-			ret = parse_conn_info(optarg, &info);
-			if (ret < 0 || ret > 3)
+			info = parse_conn_info(optarg, 3);
+			if (!info)
 				print_usage(argv[0]);
 
-			if (forward_remote(base, info.bind_port, info.host,
-						info.host_port, &keep_alive) < 0)
-				return -1;
+			info->next = remote;
+			remote = info;
 			break;
 		case 'k':
 			keep_alive = strtoul(optarg, &endptr, 0);
@@ -230,7 +233,7 @@ int main(int argc, char *argv[])
 		case 'n':
 			ipaddr_aton(optarg, &netmask);
 			break;
-		case 'g':
+		case 'G':
 			ipaddr_aton(optarg, &gateway);
 			break;
 #ifdef USE_PCAP
@@ -238,9 +241,46 @@ int main(int argc, char *argv[])
 			pcap_file = strdup(optarg);
 			break;
 #endif
+		case 'g':
+			non_local = 1;
+			break;
 		default:
 			print_usage(argv[0]);
 		}
+	}
+
+	while (local) {
+		info = local;
+		str = info->bind && info->bind[0] ? info->bind : NULL;
+		if (!non_local)
+			str = str ? : "localhost";
+
+		if (forward_local(base, str, info->bind_port,
+			info->host, info->host_port, keep_alive) < 0)
+			return -1;
+
+		local = info->next;
+		free_conn_info(info);
+	}
+
+	while (socks) {
+		info = socks;
+		str = info->bind && info->bind[0] ? info->bind : NULL;
+		if (!non_local)
+			str = str ? : "localhost";
+		if (socks_listen(base, str, info->bind_port, keep_alive) < 0)
+			return -1;
+		socks = socks->next;
+		free_conn_info(info);
+	}
+
+	while (remote) {
+		info = remote;
+		if (forward_remote(base, info->bind_port, info->host,
+					info->host_port, keep_alive) < 0)
+			return -1;
+		remote = info->next;
+		free_conn_info(info);
 	}
 
 	netif = tunif_add(base, fd_in, fd_out, pcap_file);

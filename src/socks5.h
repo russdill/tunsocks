@@ -3,6 +3,6 @@
 
 struct bufferevent;
 
-void socks5_start(struct bufferevent *bev, int *keep_alive);
+void socks5_start(struct bufferevent *bev, int keep_alive);
 
 #endif
