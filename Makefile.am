@@ -39,7 +39,6 @@ tunsocks_SOURCES = \
 	src/tunif.c \
 	src/pipe.c \
 	src/host.c \
-	src/keepalive.c \
 	src/main.c
 
 bin_PROGRAMS = tunsocks
