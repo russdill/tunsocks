@@ -29,9 +29,8 @@ struct tunif_data {
 #endif
 };
 
-
 static err_t
-tunif_output(struct netif *netif, struct pbuf *p, ip_addr_t *ipaddr)
+tunif_output(struct netif *netif, struct pbuf *p, const ip_addr_t *ipaddr)
 {
 	struct tunif_data *data = netif->state;
 	int len;
