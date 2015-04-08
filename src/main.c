@@ -8,6 +8,7 @@
 #include <lwip/ip.h>
 #include <lwip/init.h>
 #include <lwip/dns.h>
+#include <signal.h>
 
 #include "socks.h"
 #include "host.h"
@@ -149,6 +150,8 @@ int main(int argc, char *argv[])
 	mtu = 0;
 	pcap_file = NULL;
 	non_local = 0;
+
+	signal(SIGPIPE, SIG_IGN);
 
 	base = event_base_new();
 	lwip_init();
