@@ -57,9 +57,9 @@
 #define DNS_MAX_SERVERS			8
 
 #define TCP_MSS				1500
-#define TCP_WND                         (32 * TCP_MSS)
+#define TCP_WND                         65535
 #define TCP_SND_QUEUELEN                8192
-#define TCP_SND_BUF                     (16 * TCP_MSS)
+#define TCP_SND_BUF                     65535
 
 #define SO_REUSE			1
 
