@@ -127,10 +127,10 @@ int main(int argc, char *argv[])
 	int mtu;
 	int fd_in;
 	int fd_out;
-	ip_addr_t ipaddr;
-	ip_addr_t netmask;
-	ip_addr_t gateway;
-	ip_addr_t dns;
+	ip4_addr_t ipaddr;
+	ip4_addr_t netmask;
+	ip4_addr_t gateway;
+	ip4_addr_t dns;
 	struct event_base *base;
 	char *pcap_file;
 	struct conn_info *local;
@@ -158,7 +158,7 @@ int main(int argc, char *argv[])
 	libevent_timeouts_init(base);
 
 	if ((str = getenv("INTERNAL_IP4_ADDRESS")))
-		ipaddr_aton(str, &ipaddr);
+		ip4addr_aton(str, &ipaddr);
 
 	if ((str = getenv("INTERNAL_IP4_MTU")))
 		mtu = strtoul(str, NULL, 0);
@@ -175,7 +175,7 @@ int main(int argc, char *argv[])
 	if ((str = getenv("INTERNAL_IP4_DNS")))	{
 		endptr = str;
 		while ((str = tokenize(endptr, ", ", &endptr))) {
-			ipaddr_aton(str, &dns);
+			ip4addr_aton(str, &dns);
 			dns_setserver(dns_count++, &dns);
 			free(str);
 		}
@@ -225,19 +225,19 @@ int main(int argc, char *argv[])
 			break;
 		case 'd':
 			while ((str = tokenize(optarg, ", ", &optarg))) {
-				ipaddr_aton(str, &dns);
+				ip4addr_aton(str, &dns);
 				dns_setserver(dns_count++, &dns);
 				free(str);
 			}
 			break;
 		case 'i':
-			ipaddr_aton(optarg, &ipaddr);
+			ip4addr_aton(optarg, &ipaddr);
 			break;
 		case 'n':
-			ipaddr_aton(optarg, &netmask);
+			ip4addr_aton(optarg, &netmask);
 			break;
 		case 'G':
-			ipaddr_aton(optarg, &gateway);
+			ip4addr_aton(optarg, &gateway);
 			break;
 #ifdef USE_PCAP
 		case 'p':
