@@ -66,7 +66,7 @@ static const char *host_get_next_fqdn(struct host_data *data)
 	return NULL;
 }
 
-static void host_found(const char *name, ip_addr_t *ipaddr, void *ctx)
+static void host_found(const char *name, const ip_addr_t *ipaddr, void *ctx)
 {
 	struct host_data_priv *priv = ctx;
 	struct host_data *data = priv->owner;

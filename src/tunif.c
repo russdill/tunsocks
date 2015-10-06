@@ -10,6 +10,7 @@
 #include <lwip/init.h>
 #include <lwip/tcp_impl.h>
 #include <lwip/dns.h>
+#include <lwip/snmp_mib2.h>
 
 #ifdef USE_PCAP
 #include <pcap/pcap.h>
@@ -87,7 +88,7 @@ tunif_ready(evutil_socket_t fd, short events, void *ctx)
 static err_t
 tunif_init(struct netif *netif)
 {
-	NETIF_INIT_SNMP(netif, snmp_ifType_other, 0);
+	MIB2_INIT_NETIF(netif, snmp_ifType_other, 0);
 	netif->name[0] = 't';
 	netif->name[1] = 'p';
 
