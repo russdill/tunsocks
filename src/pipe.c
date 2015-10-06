@@ -93,6 +93,7 @@ static void pipe_bev_readable(struct bufferevent *bev, void *ctx)
 	struct evbuffer_iovec vec_out;
 	err_t ret;
 	int wait_for_more = 0;
+	u8_t apiflags;
 
 	avail = tcp_sndbuf(data->pcb);
 	if (!avail) {
@@ -112,7 +113,10 @@ static void pipe_bev_readable(struct bufferevent *bev, void *ctx)
 	evbuffer_pullup(buf, avail);
 	evbuffer_peek(buf, avail, NULL, &vec_out, 1);
 
-	ret = tcp_write(data->pcb, vec_out.iov_base, avail, TCP_WRITE_FLAG_COPY);
+	apiflags = TCP_WRITE_FLAG_COPY;
+	if (wait_for_more)
+		apiflags |= TCP_WRITE_FLAG_MORE;
+	ret = tcp_write(data->pcb, vec_out.iov_base, avail, apiflags);
 	if (ret < 0) {
 		bufferevent_disable(bev, EV_READ);
 		if (ret != ERR_MEM) {
