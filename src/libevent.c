@@ -60,12 +60,24 @@
 #include "lwip/sys.h"
 #include "lwip/pbuf.h"
 
+#include <time.h>
 #include <event2/event.h>
 
 #if LWIP_TCP
 /** global variable that shows if the tcp timer is currently scheduled or not */
 static int tcpip_tcp_timer_active;
 static struct event *tcp_ev;
+
+/** Returns the current time in milliseconds,
+ * may be the same as sys_jiffies or at least based on it. */
+u32_t
+sys_now(void)
+{
+  struct timespec tp;
+  /* CLOCK_BOOTTIME includes time spent in suspend */
+  clock_gettime(CLOCK_BOOTTIME, &tp);
+  return tp.tv_sec * 1000 + tp.tv_nsec / 1000000;
+}
 
 /**
  * Timer callback function that calls tcp_tmr() and reschedules itself.
