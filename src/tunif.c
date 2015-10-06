@@ -114,6 +114,9 @@ tunif_add(struct event_base *base, int fd_in, int fd_out, const char *pcap_file)
 	}
 #endif
 
+	evutil_make_socket_nonblocking(fd_in);
+	evutil_make_socket_nonblocking(fd_out);
+
 	data->fd = fd_out;
 	data->ev = event_new(base, fd_in, EV_READ | EV_PERSIST, tunif_ready, data);
 	event_add(data->ev, NULL);
