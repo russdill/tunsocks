@@ -59,7 +59,6 @@ tunif_ready(evutil_socket_t fd, short events, void *ctx)
 	struct tunif_data *data = ctx;
 	int ret;
 
-again:
 	ret = read(fd, data->buf, sizeof(data->buf));
 	if ((ret < 0 && errno != EAGAIN) || !ret) {
 		/* FATAL */
@@ -83,7 +82,6 @@ again:
 		pbuf_take(p, data->buf, ret);
 		if (data->netif.input(p, &data->netif) < 0)
 			pbuf_free(p);
-		goto again;
 	}
 }
 
