@@ -66,7 +66,7 @@ tunif_ready(evutil_socket_t fd, short events, void *ctx)
 		event_del(data->ev);
 	} else if (ret > 0) {
 		struct pbuf *p;
-		p = pbuf_alloc(PBUF_IP, ret, PBUF_POOL);
+		p = pbuf_alloc(PBUF_IP, ret, PBUF_RAM);
 		if (!p) {
 			LINK_STATS_INC(link.memerr);
 			LINK_STATS_INC(link.drop);
