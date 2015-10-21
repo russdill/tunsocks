@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <limits.h>
 #include <sys/time.h>
 
 #include <lwip/netif.h>
@@ -24,7 +25,7 @@ struct tunif_data {
 	struct netif netif;
 	int fd;
 	struct event *ev;
-	u_char buf[4096];
+	u_char buf[USHRT_MAX];
 #ifdef USE_PCAP
 	pcap_dumper_t *pcap_dumper;
 #endif
