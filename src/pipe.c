@@ -50,7 +50,7 @@ static void pipe_bev_flush(struct pipe_data *data)
 	buf = bufferevent_get_output(data->bev);
 	if (evbuffer_get_length(buf)) {
 		bufferevent_disable(data->bev, EV_READ);
-		bufferevent_setwatermark(data->bev, EV_WRITE, 0, 16384);
+		bufferevent_setwatermark(data->bev, EV_WRITE, 0, 262144);
 		bufferevent_setcb(data->bev, NULL, pipe_bev_flush_fin,
 					pipe_bev_err_kill, data);
 	} else {
@@ -163,7 +163,7 @@ static err_t pipe_tcp_recv(void *ctx, struct tcp_pcb *pcb, struct pbuf *p, err_t
 		return ERR_ABRT;
 	}
 
-	if (evbuffer_get_length(bufferevent_get_output(data->bev)) > 4096)
+	if (evbuffer_get_length(bufferevent_get_output(data->bev)) >= 262144)
 		return ERR_WOULDBLOCK;
 
 	len = p->tot_len;
@@ -209,8 +209,8 @@ void pipe_join(struct tcp_pcb *pcb, struct bufferevent *bev)
 	tcp_recv(data->pcb, pipe_tcp_recv);
 	tcp_sent(data->pcb, pipe_tcp_sent);
 
-	bufferevent_setwatermark(data->bev, EV_READ, 1, 2048);
-	bufferevent_setwatermark(data->bev, EV_WRITE, 4096, 16384);
+	bufferevent_setwatermark(data->bev, EV_READ, 1, 262144);
+	bufferevent_setwatermark(data->bev, EV_WRITE, 8192, 262144);
 	bufferevent_setcb(data->bev, pipe_bev_readable, pipe_bev_writable,
 							pipe_bev_error, data);
 	bufferevent_enable(data->bev, EV_READ);

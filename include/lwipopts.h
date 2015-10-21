@@ -54,13 +54,15 @@
 #define LWIP_TCP_KEEPALIVE		1
 #define LWIP_TCP_TIMESTAMPS		1
 #define LWIP_DNS			1
+#define LWIP_WND_SCALE			8
 #define DNS_TABLE_SIZE			255
 #define DNS_MAX_SERVERS			8
 
 #define TCP_MSS				1500
-#define TCP_WND                         65535
+#define TCP_WND                         (256*1024)
 #define TCP_SND_QUEUELEN                8192
 #define TCP_SND_BUF                     65535
+#define TCP_RCV_SCALE			8
 
 #define SO_REUSE			1
 

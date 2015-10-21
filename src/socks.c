@@ -47,7 +47,7 @@ socks_flush(struct socks_data *data)
 	buf = bufferevent_get_output(data->bev);
 	if (evbuffer_get_length(buf)) {
 		bufferevent_disable(data->bev, EV_READ);
-		bufferevent_setwatermark(data->bev, EV_WRITE, 0, 16384);
+		bufferevent_setwatermark(data->bev, EV_WRITE, 0, 262144);
 		bufferevent_setcb(data->bev, NULL, socks_flush_fin,
 				socks_request_error, data);
 	} else
@@ -168,7 +168,7 @@ socks_request_cb(struct bufferevent *bev, void *ctx)
 
 	if (evbuffer_get_length(bufferevent_get_input(bev)) < data->req_len) {
 		bufferevent_enable(bev, EV_READ);
-		bufferevent_setwatermark(bev, EV_READ, data->req_len, 2048);
+		bufferevent_setwatermark(bev, EV_READ, data->req_len, 262144);
 		bufferevent_setcb(bev, socks_request_cb, NULL,
 					socks_request_error, ctx);
 	} else
@@ -222,7 +222,7 @@ socks_accept(struct evconnlistener *evl, evutil_socket_t new_fd,
 
 	bev = bufferevent_socket_new(base, new_fd, BEV_OPT_CLOSE_ON_FREE);
 	bufferevent_setcb(bev, socks_version, NULL, socks_error, ctx);
-	bufferevent_setwatermark(bev, EV_READ, 1, 2048);
+	bufferevent_setwatermark(bev, EV_READ, 1, 262144);
 	bufferevent_enable(bev, EV_READ|EV_WRITE);
 }
 
