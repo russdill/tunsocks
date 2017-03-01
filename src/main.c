@@ -43,7 +43,7 @@ static char *tokenize(const char *str, const char *sep, char **endptr)
 	return strndup(str, i);
 }
 
-static struct conn_info *parse_conn_info(const char *str, int fmax)
+static struct conn_info *parse_conn_info(const char *str, int fmin, int fmax)
 {
 	int fields = 1;
 	int f0;
@@ -58,28 +58,34 @@ static struct conn_info *parse_conn_info(const char *str, int fmax)
 			fields++;
 		}
 
-	f0 = fields == 4 ? 1 : 0;
+	if (fields < fmin)
+		return NULL;
 
 	info = calloc(1, sizeof(*info));
 
-	info->bind_port = strndup(field[f0], field[f0 + 1] - field[f0] - 1);
-
-	if (fields == 4)
+	/* Bind address is the leading optional field */
+	if (fields > fmin) {
+		f0 = 1;
+		fields--;
 		info->bind = strndup(field[0], field[1] - field[0] - 1);
-	else
+	} else {
+		f0 = 0;
 		info->bind = NULL;
+	}
 
-	if (fields >= 3)
-		info->host_port = strndup(field[f0 + 2],
-					field[f0 + 3] - field[f0 + 2] - 1);
-	else
-		info->host_port = strdup(info->bind_port);
+	info->bind_port = strndup(field[f0], field[f0 + 1] - field[f0] - 1);
 
 	if (fields >= 2)
 		info->host = strndup(field[f0 + 1],
 					field[f0 + 2] - field[f0 + 1] - 1);
 	else
 		info->host = NULL;
+
+	if (fields >= 3)
+		info->host_port = strndup(field[f0 + 2],
+					field[f0 + 3] - field[f0 + 2] - 1);
+	else
+		info->host_port = strdup(info->bind_port);
 
 	return info;
 }
@@ -97,9 +103,9 @@ static void print_usage(const char *argv0)
 {
 	fprintf(stderr,
 "usage: %s <options>\n\n"
-"    -L [bind_address:]port:host:hostport\n"
-"    -D [bind_address:]port\n"
-"    -R port:host:hostport\n"
+"    -L [bind_address:]bind_port:host_address:host_port\n"
+"    -D [bind_address:]bind_port\n"
+"    -R bind_port:host_address:host_port\n"
 "    -g Allow non-local clients (command line compatibility for ocproxy)\n"
 "    -k keep alive interval (seconds)\n"
 "    -m mtu (env INTERNAL_IP4_MTU)\n"
@@ -185,7 +191,7 @@ int main(int argc, char *argv[])
 
 		switch (c) {
 		case 'L':
-			info = parse_conn_info(optarg, 4);
+			info = parse_conn_info(optarg, 3, 4);
 			if (!info)
 				print_usage(argv[0]);
 
@@ -193,7 +199,7 @@ int main(int argc, char *argv[])
 			local = info;
 			break;
 		case 'D':
-			info = parse_conn_info(optarg, 2);
+			info = parse_conn_info(optarg, 1, 2);
 			if (!info)
 				print_usage(argv[0]);
 
@@ -201,7 +207,7 @@ int main(int argc, char *argv[])
 			socks = info;
 			break;
 		case 'R':
-			info = parse_conn_info(optarg, 3);
+			info = parse_conn_info(optarg, 3, 3);
 			if (!info)
 				print_usage(argv[0]);
 
