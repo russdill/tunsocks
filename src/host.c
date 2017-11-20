@@ -52,7 +52,7 @@ static const char *host_get_next_fqdn(struct host_data *data)
 
 	if (i < ARRAY_SIZE(host_search)) {
 		static char fqdn[DNS_MAX_NAME_LENGTH];
-		snprintf(fqdn, DNS_MAX_NAME_LENGTH, "%s.%s", data->fqdn,
+		snprintf(fqdn, sizeof(fqdn), "%s.%s", data->fqdn,
 					host_search[i]);
 		data->priv->search = i + 1;
 		return fqdn;

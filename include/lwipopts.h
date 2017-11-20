@@ -81,6 +81,7 @@
 #define MEM_DEBUG			LWIP_DBG_OFF
 #define IP_DEBUG			LWIP_DBG_OFF
 #define TCP_DEBUG			LWIP_DBG_OFF
+#define UDP_DEBUG			LWIP_DBG_OFF
 #define DNS_DEBUG			LWIP_DBG_OFF
 
 #endif /* __LWIPOPTS_H__ */

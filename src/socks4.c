@@ -11,7 +11,7 @@
 
 #define SOCKS4_CMD_CONNECT	1
 #define SOCKS4_CMD_BIND		2
-#define SOCKS4_CMD_RESOLVE	240
+#define SOCKS4_CMD_RESOLVE	240	/* TOR extension */
 
 #define SOCKS4_RESP_GRANT       90
 #define SOCKS4_RESP_REJECT      91
@@ -194,19 +194,19 @@ socks4_read_hdr(struct socks_data *sdata)
 }
 
 void
-socks4_start(struct bufferevent *bev, int keep_alive)
+socks4_start(struct socks_server *s, struct bufferevent *bev)
 {
 	struct socks4_data *data;
 	struct socks_data *sdata;
 	data = calloc(1, sizeof(struct socks4_data));
 	sdata = &data->socks;
+	sdata->server = s;
 	sdata->host.found = socks4_host_found;
 	sdata->host.failed = socks4_host_failed;
 	sdata->kill = socks4_kill;
 	sdata->connect_ok = socks4_connect_ok;
 	sdata->connect_failed = socks4_connect_failed;
 	sdata->bev = bev;
-	sdata->keep_alive = keep_alive;
 	socks_request(sdata, sizeof(struct socks4_hdr) - 1,
 							socks4_read_hdr);
 }

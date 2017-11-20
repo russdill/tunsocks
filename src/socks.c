@@ -3,10 +3,13 @@
 #include <event2/buffer.h>
 #include <event2/listener.h>
 #include <lwip/tcp.h>
+#include <lwip/udp.h>
 #include <lwip/priv/tcp_priv.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include "socks.h"
 #include "socks4.h"
@@ -24,6 +27,18 @@ socks_kill(struct socks_data *data)
 		tcp_err(data->pcb, NULL);
 		tcp_abort(data->pcb);
 		data->pcb = NULL;
+	}
+	if (data->upcb) {
+		udp_remove(data->upcb);
+		data->upcb = NULL;
+	}
+	if (data->udp_event) {
+		event_free(data->udp_event);
+		data->udp_event = NULL;
+	}
+	if (data->udp_pbuf) {
+		pbuf_free(data->udp_pbuf);
+		data->udp_pbuf = NULL;
 	}
 	data->kill(data);
 }
@@ -54,6 +69,132 @@ socks_flush(struct socks_data *data)
 		socks_flush_fin(data->bev, data);
 }
 
+static void
+socks_udp_recv(void *priv, struct udp_pcb *pcb, struct pbuf *p,
+				const ip_addr_t *addr, u16_t port)
+{
+	struct socks_data *data = priv;
+	data->udp_recv(data, p, addr, port);
+}
+
+static void
+socks_udp_read(const int fd, short int method, void *priv)
+{
+	struct socks_data *data = priv;
+	struct pbuf *p = data->udp_pbuf;
+	unsigned int offset;
+	int len;
+
+	offset = PBUF_LINK_ENCAPSULATION_HLEN + PBUF_LINK_HLEN +
+				PBUF_IP_HLEN + PBUF_TRANSPORT_HLEN;
+
+	/* Reset the pbuf and allocate network header space */
+	p->len = p->tot_len = data->udp_pbuf_len;
+	p->payload = LWIP_MEM_ALIGN((void *)((u8_t *)p +
+			LWIP_MEM_ALIGN_SIZE(sizeof(struct pbuf)) + offset));
+
+	len = recv(fd, p->payload, p->len, 0);
+	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: read %d bytes of udp from client\n", __func__, len));
+	if (len < 0) {
+		if (errno == EAGAIN || errno == EINTR)
+			return;
+		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: UDP read error\n", __func__));
+		return;
+	}
+	p->len = p->tot_len = len;
+	data->udp_send(data, p);
+}
+
+int
+socks_udp_bind(struct event_base *base, struct socks_data *data)
+{
+	struct event *event;
+	struct udp_pcb *pcb;
+	struct sockaddr_in *si;
+	struct sockaddr addr;
+	socklen_t addrlen;
+	int fd;
+	err_t ret;
+
+	memcpy(&addr, &data->server->addr, data->server->addr_len);
+	if (addr.sa_family == AF_INET)
+		((struct sockaddr_in *) &addr)->sin_port = 0;
+	else if (addr.sa_family == AF_INET6)
+		((struct sockaddr_in6 *) &addr)->sin6_port = 0;
+	else {
+		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: Invalid address family\n", __func__));
+		return -1;
+	}
+
+	fd = socket(AF_INET, SOCK_DGRAM|O_NONBLOCK, IPPROTO_UDP);
+	if (fd < 0) {
+		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: socket %m\n", __func__));
+		return -1;
+	}
+
+	if (bind(fd, &addr, data->server->addr_len) < 0) {
+		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: bind %m\n", __func__));
+		close(fd);
+		return -1;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addrlen = sizeof(addr);
+	if (getsockname(fd, &addr, &addrlen) < 0) {
+		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: getsockname %m\n", __func__));
+		close(fd);
+		return -1;
+	}
+
+	if (addr.sa_family == AF_INET)
+		data->udp_port =
+			ntohs(((struct sockaddr_in *) &addr)->sin_port);
+	else if (addr.sa_family == AF_INET6)
+		data->udp_port =
+			ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
+
+	si = (struct sockaddr_in *) &addr;
+	memset(si, 0, sizeof(*si));
+	si->sin_family = AF_INET;
+	si->sin_addr.s_addr = data->ipaddr.addr;
+	si->sin_port = ntohs(data->port);
+
+	if (connect(fd, (struct sockaddr *) si, sizeof(*si)) < 0) {
+		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: connect %m\n", __func__));
+		close(fd);
+		return -1;
+	}
+
+	event = event_new(base, fd, EV_READ|EV_PERSIST, socks_udp_read, data);
+	event_add(event, NULL);
+
+	pcb = udp_new();
+	if (!pcb) {
+		event_free(event);
+		close(fd);
+		return -1;
+	}
+
+	ret = udp_bind(pcb, IP_ADDR_ANY, data->port);
+	if (ret < 0) {
+		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: udp_bind failed\n", __func__));
+		udp_remove(pcb);
+		event_free(event);
+		close(fd);
+		return -1;
+	}
+
+	udp_recv(pcb, socks_udp_recv, data);
+
+	data->udp_pbuf = pbuf_alloc(PBUF_RAW, 2048, PBUF_RAM);
+	data->udp_pbuf_len = 2048;
+	data->udp_fd = fd;
+	data->upcb = pcb;
+	data->udp_event = event;
+
+	return 0;
+}
+
 static err_t
 socks_tcp_accept(void *ctx, struct tcp_pcb *pcb, err_t err)
 {
@@ -68,10 +209,10 @@ socks_tcp_accept(void *ctx, struct tcp_pcb *pcb, err_t err)
 	data->pcb = pcb;
 
 	pcb->flags |= TF_NODELAY;
-	if (data->keep_alive) {
+	if (data->server->keep_alive) {
 		pcb->so_options |= SOF_KEEPALIVE;
-		pcb->keep_intvl = data->keep_alive;
-		pcb->keep_idle = data->keep_alive;
+		pcb->keep_intvl = data->server->keep_alive;
+		pcb->keep_idle = data->server->keep_alive;
 	}
 
 	data->connect_ok(data);
@@ -144,10 +285,10 @@ socks_tcp_connect(struct socks_data *data)
 		data->connect_failed(data);
 
 	pcb->flags |= TF_NODELAY;
-	if (data->keep_alive) {
+	if (data->server->keep_alive) {
 		pcb->so_options |= SOF_KEEPALIVE;
-		pcb->keep_intvl = data->keep_alive;
-		pcb->keep_idle = data->keep_alive;
+		pcb->keep_intvl = data->server->keep_alive;
+		pcb->keep_idle = data->server->keep_alive;
 	}
 
 	ret = tcp_connect(pcb, &data->ipaddr, data->port, socks_tcp_connect_ok);
@@ -186,7 +327,7 @@ socks_request(struct socks_data *data, int n, void (*cb)(struct socks_data*))
 static void
 socks_version(struct bufferevent *bev, void *ctx)
 {
-	int keep_alive = (int) ctx;
+	struct socks_server *s = ctx;
 	u_char version;
 
 	bufferevent_read(bev, &version, 1);
@@ -195,10 +336,10 @@ socks_version(struct bufferevent *bev, void *ctx)
 
 	switch (version) {
 	case 4:
-		socks4_start(bev, keep_alive);
+		socks4_start(s, bev);
 		break;
 	case 5:
-		socks5_start(bev, keep_alive);
+		socks5_start(s, bev);
 		break;
 	default:
 		bufferevent_free(bev);
@@ -237,7 +378,12 @@ socks_listen(struct event_base *base, const char *host, const char *port,
 	struct evconnlistener *evl;
 	struct addrinfo hints;
 	struct addrinfo *result;
+	struct socks_server *s;
 	int ret;
+
+	s = malloc(sizeof(*s));
+	memset(s, 0, sizeof(*s));
+	s->keep_alive = keep_alive;
 
 	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_UNSPEC;
@@ -249,7 +395,10 @@ socks_listen(struct event_base *base, const char *host, const char *port,
 		return ret;
 	}
 
-	evl = evconnlistener_new_bind(base, socks_accept, (void *) keep_alive,
+	memcpy(&s->addr, result->ai_addr, result->ai_addrlen);
+	s->addr_len = result->ai_addrlen;
+
+	evl = evconnlistener_new_bind(base, socks_accept, (void *) s,
 		LEV_OPT_CLOSE_ON_FREE | LEV_OPT_CLOSE_ON_EXEC |
 		LEV_OPT_REUSEABLE | LEV_OPT_DEFERRED_ACCEPT, 10,
 		result->ai_addr, result->ai_addrlen);

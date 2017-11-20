@@ -2,7 +2,8 @@
 #define __SOCKS5_H__
 
 struct bufferevent;
+struct socks_server;
 
-void socks5_start(struct bufferevent *bev, int keep_alive);
+void socks5_start(struct socks_server *s, struct bufferevent *bev);
 
 #endif
