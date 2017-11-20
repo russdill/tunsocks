@@ -3,7 +3,7 @@
 #include <event2/buffer.h>
 #include <event2/listener.h>
 #include <lwip/tcp.h>
-#include <lwip/tcp_impl.h>
+#include <lwip/priv/tcp_priv.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/types.h>

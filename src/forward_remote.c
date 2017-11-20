@@ -4,7 +4,7 @@
 #include <netdb.h>
 #include <string.h>
 #include <lwip/tcp.h>
-#include <lwip/tcp_impl.h>
+#include <lwip/priv/tcp_priv.h>
 
 #include "container_of.h"
 #include "host.h"
