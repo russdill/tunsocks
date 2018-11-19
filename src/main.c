@@ -81,10 +81,13 @@ static struct conn_info *parse_conn_info(const char *str, int fmin, int fmax)
 	else
 		info->host = NULL;
 
-	if (fields >= 3)
-		info->host_port = strndup(field[f0 + 2],
+	if (fields >= 3) {
+		if (f0)
+			info->host_port = strdup(field[f0 + 2]);
+		else
+			info->host_port = strndup(field[f0 + 2],
 					field[f0 + 3] - field[f0 + 2] - 1);
-	else
+	} else
 		info->host_port = strdup(info->bind_port);
 
 	return info;
