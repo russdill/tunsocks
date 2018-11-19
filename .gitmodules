@@ -1,3 +1,12 @@
 [submodule "lwip"]
 	path = lwip
 	url = git://git.sv.gnu.org/lwip.git
+[submodule "lwip-udhcpd"]
+	path = lwip-udhcpd
+	url = https://github.com/russdill/lwip-udhcpd.git
+[submodule "lwip-libevent"]
+	path = lwip-libevent
+	url = https://github.com/russdill/lwip-libevent.git
+[submodule "lwip-nat"]
+	path = lwip-nat
+	url = https://github.com/russdill/lwip-nat.git
