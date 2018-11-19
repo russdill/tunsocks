@@ -9,6 +9,8 @@
 #include "socks4.h"
 #include "pipe.h"
 
+#if LWIP_IPV4
+
 #define SOCKS4_CMD_CONNECT	1
 #define SOCKS4_CMD_BIND		2
 #define SOCKS4_CMD_RESOLVE	240	/* TOR extension */
@@ -56,7 +58,7 @@ socks4_response(struct socks_data *sdata, int code, int connected, int die)
 		}
 	} else {
 		hdr.port = 0;
-		hdr.addr = sdata->ipaddr.addr;
+		hdr.addr = ip4_addr_get_u32(ip_2_ip4(&sdata->ipaddr));
 	}
 
 	bufferevent_write(sdata->bev, &hdr, sizeof(hdr));
@@ -158,7 +160,8 @@ socks4_read_user(struct socks_data *sdata)
 	while (bufferevent_read(sdata->bev, &ch, 1) > 0 && ch);
 
 	if (!ch) {
-		unsigned long ip = ntohl(sdata->ipaddr.addr);
+		unsigned int ip;
+		ip = ntohl(ip4_addr_get_u32(ip_2_ip4(&sdata->ipaddr)));
 		LWIP_DEBUGF(SOCKS_DEBUG, ("%s\n", __func__));
 		if (ip < 0x100 && ip)
 			socks_request(sdata, 1, socks4_read_fqdn);
@@ -187,7 +190,7 @@ socks4_read_hdr(struct socks_data *sdata)
 	}
 
 	data->cmd = hdr.cmd;
-	sdata->ipaddr.addr = hdr.addr;
+	raw_to_ip4_addr(&hdr.addr, &sdata->ipaddr);
 	sdata->port = ntohs(hdr.port);
 
 	socks_request(sdata, 1, socks4_read_user);
@@ -210,3 +213,10 @@ socks4_start(struct socks_server *s, struct bufferevent *bev)
 	socks_request(sdata, sizeof(struct socks4_hdr) - 1,
 							socks4_read_hdr);
 }
+
+#else
+void
+socks4_start(struct socks_server *s, struct bufferevent *bev)
+{
+}
+#endif

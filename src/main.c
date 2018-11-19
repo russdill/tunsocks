@@ -143,10 +143,20 @@ int main(int argc, char *argv[])
 	int mtu;
 	int fd_in;
 	int fd_out;
-	ip4_addr_t ipaddr;
-	ip4_addr_t netmask;
-	ip4_addr_t gateway;
-	ip4_addr_t dns;
+	ip_addr_t ipaddr;
+	ip_addr_t netmask;
+	ip_addr_t gateway;
+	ip_addr_t dns;
+#if LWIP_IPV4
+	ip_addr_t ipaddr4;
+	ip_addr_t netmask4;
+	ip_addr_t gateway4;
+#endif
+#if LWIP_IPV6
+	ip_addr_t ipaddr6;
+	ip_addr_t netmask6;
+	ip_addr_t gateway6;
+#endif
 	struct event_base *base;
 #ifdef USE_PCAP
 	struct pcap_entry *pcap_entries, *pcap_entry;
@@ -156,9 +166,16 @@ int main(int argc, char *argv[])
 	struct conn_info *socks;
 	struct conn_info *info;
 
-	ip_addr_set_zero(&ipaddr);
-	ip_addr_set_zero(&netmask);
-	ip_addr_set_zero(&gateway);
+#if LWIP_IPV4
+	IP4_ADDR(&ipaddr4, 10, 0, 3, 1);
+	IP4_ADDR(&netmask4, 255, 255, 255, 0);
+	ip_addr_set_zero(&gateway4);
+#endif
+#if LWIP_IPV6
+	ip_addr_set_zero(&ipaddr6);
+	ip_addr_set_zero(&netmask6);
+	ip_addr_set_zero(&gateway6);
+#endif
 
 	local = remote = socks = NULL;
 	dns_count = 0;
@@ -175,11 +192,43 @@ int main(int argc, char *argv[])
 	lwip_init();
 	libevent_timeouts_init(base);
 
+
+#if LWIP_IPV4
 	if ((str = getenv("INTERNAL_IP4_ADDRESS")))
-		ip4addr_aton(str, &ipaddr);
+		ip4addr_aton(str, ip_2_ip4(&ipaddr4));
+
+	if ((str = getenv("INTERNAL_IP4_NETMASK")))
+		ip4addr_aton(str, ip_2_ip4(&netmask4));
+
+	if ((str = getenv("INTERNAL_IP4_DNS")))	{
+		endptr = str;
+		while ((str = tokenize(endptr, ", ", &endptr))) {
+			ip4addr_aton(str, ip_2_ip4(&dns));
+			dns_setserver(dns_count++, &dns);
+			free(str);
+		}
+	}
+#endif
 
 	if ((str = getenv("INTERNAL_IP4_MTU")))
 		mtu = strtoul(str, NULL, 0);
+
+#if LWIP_IPV6
+	if ((str = getenv("INTERNAL_IP6_ADDRESS")))
+		ip6addr_aton(str, ip_2_ip6(&ipaddr6));
+
+	if ((str = getenv("INTERNAL_IP6_NETMASK")))
+		ip6addr_aton(str, ip_2_ip6(&netmask6));
+
+	if ((str = getenv("INTERNAL_IP6_DNS")))	{
+		endptr = str;
+		while ((str = tokenize(endptr, ", ", &endptr))) {
+			ip6addr_aton(str, ip_2_ip6(&dns));
+			dns_setserver(dns_count++, &dns);
+			free(str);
+		}
+	}
+#endif
 
 	if ((str = getenv("VPNFD")))
 		fd_in = fd_out = strtoul(str, NULL, 0);
@@ -188,15 +237,6 @@ int main(int argc, char *argv[])
 		endptr = str;
 		while ((str = tokenize(endptr, ", ", &endptr)))
 			host_add_search(str);
-	}
-
-	if ((str = getenv("INTERNAL_IP4_DNS")))	{
-		endptr = str;
-		while ((str = tokenize(endptr, ", ", &endptr))) {
-			ip4addr_aton(str, &dns);
-			dns_setserver(dns_count++, &dns);
-			free(str);
-		}
 	}
 
 	while ((c = getopt(argc, argv, "L:D:R:k:m:s:d:i:n:G:p:gh")) != -1) {
@@ -243,19 +283,47 @@ int main(int argc, char *argv[])
 			break;
 		case 'd':
 			while ((str = tokenize(optarg, ", ", &optarg))) {
-				ip4addr_aton(str, &dns);
+				if (!ip4addr_aton(str, &dns))
+					print_usage(argv[0]);
 				dns_setserver(dns_count++, &dns);
 				free(str);
 			}
 			break;
 		case 'i':
-			ip4addr_aton(optarg, &ipaddr);
+			if (!ipaddr_aton(optarg, &ipaddr))
+				print_usage(argv[0]);
+#if LWIP_IPV4
+			if (IP_IS_V4(&ipaddr))
+				ip_addr_copy(ipaddr4, ipaddr);
+#endif
+#if LWIP_IPV6
+			if (IP_IS_V6(&ipaddr))
+				ip_addr_copy(ipaddr6, ipaddr);
+#endif
 			break;
 		case 'n':
-			ip4addr_aton(optarg, &netmask);
+			if (!ipaddr_aton(optarg, &netmask))
+				print_usage(argv[0]);
+#if LWIP_IPV4
+			if (IP_IS_V4(&netmask))
+				ip_addr_copy(netmask4, netmask);
+#endif
+#if LWIP_IPV6
+			if (IP_IS_V6(&netmask))
+				ip_addr_copy(netmask6, netmask);
+#endif
 			break;
 		case 'G':
-			ip4addr_aton(optarg, &gateway);
+			if (!ipaddr_aton(optarg, &gateway))
+				print_usage(argv[0]);
+#if LWIP_IPV4
+			if (IP_IS_V4(&gateway))
+				ip_addr_copy(gateway4, gateway);
+#endif
+#if LWIP_IPV6
+			if (IP_IS_V6(&gateway))
+				ip_addr_copy(gateway6, gateway);
+#endif
 			break;
 #ifdef USE_PCAP
 		case 'p':
@@ -315,9 +383,9 @@ int main(int argc, char *argv[])
 		netif = fdif_add(base, fd_in, fd_out, 0);
 	netif_set_default(netif);
 
-	netif_set_ipaddr(netif, &ipaddr);
-	netif_set_netmask(netif, &netmask);
-	netif_set_gw(netif, &gateway);
+	netif_set_ipaddr(netif, &ipaddr4);
+	netif_set_netmask(netif, &netmask4);
+	netif_set_gw(netif, &gateway4);
 	if (mtu)
 		netif->mtu = mtu;
 

@@ -32,7 +32,15 @@ struct socks_data {
 	int req_len;
 	void (*req_cb)(struct socks_data*);
 
-	struct udp_pcb *upcb;
+#if LWIP_IPV4
+	struct tcp_pcb *listen_pcb4;
+	struct udp_pcb *upcb4;
+#endif
+#if LWIP_IPV6
+	struct tcp_pcb *listen_pcb6;
+	struct udp_pcb *upcb6;
+#endif
+
 	int udp_fd;
 	u_int16_t udp_port;
 	void (*udp_recv)(struct socks_data*, struct pbuf*,

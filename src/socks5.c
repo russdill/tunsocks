@@ -223,7 +223,14 @@ socks5_udp_send(struct socks_data *data, struct pbuf *p)
 		return;
 	}
 
-	err = udp_sendto(data->upcb, p, &ipaddr, port);
+#if LWIP_IPV4
+	if (IP_IS_V4(&ipaddr))
+		err = udp_sendto(data->upcb4, p, &ipaddr, port);
+#endif
+#if LWIP_IPV6
+	if (IP_IS_V6(&ipaddr))
+		err = udp_sendto(data->upcb6, p, &ipaddr, port);
+#endif
 	if (err < 0)
 		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: udp_sendto failed: %d\n", __func__, err));
 }
@@ -254,7 +261,7 @@ socks5_udp_recv(struct socks_data *data, struct pbuf *p,
 
 	hdr->rsv = 0;
 	hdr->frag = 0;
-	hdr->atyp = SOCKS5_ATYP_IPV4;
+	hdr->atyp = IP_IS_V4(addr) ? SOCKS5_ATYP_IPV4 : SOCKS5_ATYP_IPV6;
 
 	if (send(data->udp_fd, p->payload, p->len, 0) < 0) {
 		/* Error sending packet */

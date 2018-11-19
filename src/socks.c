@@ -335,9 +335,11 @@ socks_version(struct bufferevent *bev, void *ctx)
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: socks version %d\n", __func__, version));
 
 	switch (version) {
+#if LWIP_IPV4
 	case 4:
 		socks4_start(s, bev);
 		break;
+#endif
 	case 5:
 		socks5_start(s, bev);
 		break;
@@ -386,7 +388,8 @@ socks_listen(struct event_base *base, const char *host, const char *port,
 	s->keep_alive = keep_alive;
 
 	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = AF_UNSPEC;
+	/* Default to IPv4 if host isn't specified */
+	hints.ai_family = host ? AF_UNSPEC : AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
 
 	ret = getaddrinfo(host, port, &hints, &result);
