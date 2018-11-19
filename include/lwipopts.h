@@ -32,7 +32,12 @@
 #ifndef __LWIPOPTS_H__
 #define __LWIPOPTS_H__
 
+#include <lwip/arch.h>
+#include <lwip/err.h>
+
 #define NO_SYS_NO_TIMERS		1
+#define SYS_LIGHTWEIGHT_PROT		0
+#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS
 
 #define MEM_LIBC_MALLOC			1
 #define MEMP_MEM_MALLOC			1
@@ -80,7 +85,11 @@
 #define HOSTS_DEBUG			LWIP_DBG_OFF
 #define MEM_DEBUG			LWIP_DBG_OFF
 #define IP_DEBUG			LWIP_DBG_OFF
+#define IP_REASS_DEBUG			LWIP_DBG_OFF
 #define TCP_DEBUG			LWIP_DBG_OFF
+#define TCP_INPUT_DEBUG			LWIP_DBG_OFF
+#define TCP_OUTPUT_DEBUG		LWIP_DBG_OFF
+#define TCP_CWND_DEBUG			LWIP_DBG_OFF
 #define UDP_DEBUG			LWIP_DBG_OFF
 #define DNS_DEBUG			LWIP_DBG_OFF
 

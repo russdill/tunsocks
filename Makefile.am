@@ -19,10 +19,11 @@ tunsocks_SOURCES = \
 	lwip/src/core/netif.c \
 	lwip/src/core/pbuf.c \
 	lwip/src/core/stats.c \
+	lwip/src/core/ip.c \
 	lwip/src/core/dns.c \
 	lwip/src/core/udp.c \
-	lwip/src/core/sys.c \
 	lwip/src/core/raw.c \
+	lwip/src/core/sys.c \
 	lwip/src/core/tcp.c \
 	lwip/src/core/tcp_in.c \
 	lwip/src/core/tcp_out.c \
@@ -30,7 +31,7 @@ tunsocks_SOURCES = \
 	lwip/src/core/ipv4/icmp.c \
 	lwip/src/core/ipv4/ip4.c \
 	lwip/src/core/ipv4/ip4_addr.c \
-	lwip/src/core/ipv4/ip_frag.c \
+	lwip/src/core/ipv4/ip4_frag.c \
 	lwip-libevent/netif/fdif.c \
 	lwip-libevent/util/host.c \
 	lwip-libevent/libevent.c \
