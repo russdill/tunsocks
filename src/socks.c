@@ -14,7 +14,7 @@
 #include "socks.h"
 #include "socks4.h"
 #include "socks5.h"
-#include "host.h"
+#include "util/host.h"
 #include "container_of.h"
 
 void

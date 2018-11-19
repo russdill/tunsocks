@@ -11,18 +11,25 @@
 #include <signal.h>
 
 #include "socks.h"
-#include "host.h"
+#include "util/host.h"
 #include "forward_local.h"
 #include "forward_remote.h"
-#include "tunif.h"
-#include "libevent.h"
+#include "util/pcap.h"
+#include "util/libevent.h"
 
+#include "netif/fdif.h"
 struct conn_info {
 	char *bind;
 	char *bind_port;
 	char *host;
 	char *host_port;
 	struct conn_info *next;
+};
+
+struct pcap_entry {
+	char *file;
+	char *netif;
+	struct pcap_entry *next;
 };
 
 static char *tokenize(const char *str, const char *sep, char **endptr)
@@ -118,7 +125,7 @@ static void print_usage(const char *argv0)
 "    -n netmask\n"
 "    -G gateway\n"
 #ifdef USE_PCAP
-"    -p pcap_file\n"
+"    -p pcap_file[:netif] (Default netif 'fd', VPN input)\n"
 #endif
 "\n", basename((char *) argv0));
 	exit(1);
@@ -141,7 +148,9 @@ int main(int argc, char *argv[])
 	ip4_addr_t gateway;
 	ip4_addr_t dns;
 	struct event_base *base;
-	char *pcap_file;
+#ifdef USE_PCAP
+	struct pcap_entry *pcap_entries, *pcap_entry;
+#endif
 	struct conn_info *local;
 	struct conn_info *remote;
 	struct conn_info *socks;
@@ -157,7 +166,7 @@ int main(int argc, char *argv[])
 	fd_in = 0;
 	fd_out = 1;
 	mtu = 0;
-	pcap_file = NULL;
+	pcap_entries = NULL;
 	non_local = 0;
 
 	signal(SIGPIPE, SIG_IGN);
@@ -250,7 +259,15 @@ int main(int argc, char *argv[])
 			break;
 #ifdef USE_PCAP
 		case 'p':
-			pcap_file = strdup(optarg);
+			pcap_entry = calloc(1, sizeof(*pcap_entry));
+			pcap_entry->next = pcap_entries;
+			pcap_entries = pcap_entry;
+			pcap_entry->file = strdup(optarg);
+			pcap_entry->netif = strchr(pcap_entry->file, ':');
+			if (pcap_entry->netif) {
+				pcap_entry->netif[0] = '\0';
+				pcap_entry->netif++;
+			}
 			break;
 #endif
 		case 'g':
@@ -295,15 +312,38 @@ int main(int argc, char *argv[])
 		free_conn_info(info);
 	}
 
-	netif = tunif_add(base, fd_in, fd_out, pcap_file);
+		netif = fdif_add(base, fd_in, fd_out, 0);
+	netif_set_default(netif);
 
 	netif_set_ipaddr(netif, &ipaddr);
 	netif_set_netmask(netif, &netmask);
 	netif_set_gw(netif, &gateway);
 	if (mtu)
 		netif->mtu = mtu;
-	netif_set_up(netif);
 
+
+#ifdef USE_PCAP
+	for (pcap_entry = pcap_entries; pcap_entry; pcap_entry = pcap_entry->next) {
+		const char *name = pcap_entry->netif;
+		struct netif *pcapif = NULL;
+		if (strlen(name) == 2) {
+			NETIF_FOREACH(pcapif) {
+				if (name[0] == pcapif->name[0] && name[1] == pcapif->name[1])
+				break;
+			}
+		} else if (strlen(name) > 2)
+			pcapif = netif_find(name);
+
+		if (!pcapif) {
+			fprintf(stderr, "Could not find netif: '%s'\n", name);
+			print_usage(argv[0]);
+		}
+		if (pcap_dump_add(pcapif, pcap_entry->file) < 0)
+			return -1;
+	}
+#endif
+
+	netif_set_up(netif);
 	event_base_dispatch(base);
 
 	return 0;

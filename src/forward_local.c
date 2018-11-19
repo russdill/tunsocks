@@ -8,7 +8,6 @@
 #include <lwip/priv/tcp_priv.h>
 
 #include "container_of.h"
-#include "host.h"
 #include "pipe.h"
 #include "forward_local.h"
 

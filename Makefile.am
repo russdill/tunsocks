@@ -2,11 +2,12 @@ AM_CFLAGS=\
 	-I$(srcdir)/lwip/src/include \
 	-I$(srcdir)/lwip/src/include/ipv4 \
 	-I$(srcdir)/lwip/src/include/ipv6 \
-	-I$(srcdir)/include -Wall -O2 -g
+	-I$(srcdir)/lwip-libevent/include \
+	-I$(srcdir)/include -Wall -Og -g
 
 if HAVE_PCAP
 AM_CFLAGS += -DUSE_PCAP
-tunsocks_LDADD = $(PCAP_LIBS)
+tunsocks_LDADD += $(PCAP_LIBS)
 endif
 
 tunsocks_SOURCES = \
@@ -30,16 +31,18 @@ tunsocks_SOURCES = \
 	lwip/src/core/ipv4/ip4.c \
 	lwip/src/core/ipv4/ip4_addr.c \
 	lwip/src/core/ipv4/ip_frag.c \
-	src/libevent.c \
+	lwip-libevent/netif/fdif.c \
+	lwip-libevent/util/host.c \
+	lwip-libevent/libevent.c \
 	src/socks4.c \
 	src/socks5.c \
 	src/socks.c \
 	src/forward_local.c \
 	src/forward_remote.c \
-	src/tunif.c \
-	src/pipe.c \
-	src/host.c \
 	src/main.c
 
-bin_PROGRAMS = tunsocks
+if HAVE_PCAP
+tunsocks_SOURCES += lwip-libevent/util/pcap.c
+endif
 
+bin_PROGRAMS = tunsocks

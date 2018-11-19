@@ -4,7 +4,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-#include "host.h"
+#include "util/host.h"
 
 struct event_base;
 struct bufferevent;
