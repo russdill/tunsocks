@@ -9,7 +9,9 @@
 #include "container_of.h"
 #include "socks.h"
 #include "socks5.h"
-#include "pipe.h"
+#include "util/sockaddr.h"
+#include "util/lwipevbuf.h"
+#include "util/lwipevbuf_bev_join.h"
 
 #define SOCKS5_ATYP_IPV4	0x01
 #define SOCKS5_ATYP_FQDN	0x03
@@ -58,6 +60,11 @@ struct socks5_udp_ipv4 {
 	u_short port;
 } __attribute__((__packed__));
 
+struct socks5_udp_ipv6 {
+	u_char addr[16];
+	u_short port;
+} __attribute__((__packed__));
+
 static void
 socks5_kill(struct socks_data *sdata)
 {
@@ -77,6 +84,7 @@ socks5_response(struct socks_data *sdata, int code, int connected, int die)
 	u_int16_t port;
 	void *addr;
 	u_char addr_len;
+	int zero = 0;
 
 	data = container_of(sdata, struct socks5_data, socks);
 
@@ -84,41 +92,48 @@ socks5_response(struct socks_data *sdata, int code, int connected, int die)
 	if (!die) {
 		if (data->cmd == SOCKS5_CMD_UDP) {
 			struct sockaddr *sa = &sdata->server->addr;
-			if (sa->sa_family == AF_INET) {
-				struct sockaddr_in *sin;
-				sin = (struct sockaddr_in *) sa;
-				req.atyp = SOCKS5_ATYP_IPV4;
-				addr = &sin->sin_addr.s_addr;
-				addr_len = 4;
-			} else if (sa->sa_family == AF_INET6) {
+			if (sa->sa_family == AF_INET6) {
 				struct sockaddr_in6 *sin;
 				sin = (struct sockaddr_in6 *) sa;
 				req.atyp = SOCKS5_ATYP_IPV6;
 				addr = &sin->sin6_addr.s6_addr;
 				addr_len = 16;
 			} else {
-				req.atyp = 0;
-				addr = NULL;
-				addr_len = 0;
-				die = 1;
+				struct sockaddr_in *sin;
+				sin = (struct sockaddr_in *) sa;
+				req.atyp = SOCKS5_ATYP_IPV4;
+				addr = &sin->sin_addr.s_addr;
+				addr_len = 4;
+				if (sa->sa_family != AF_INET) {
+					req.cmd = SOCKS5_RESP_FAILURE;
+					die = 1;
+				}
 			}
 			port = htons(sdata->udp_port);
 		} else if (connected && data->cmd == SOCKS5_CMD_BIND) {
-			req.atyp = SOCKS5_ATYP_IPV4;
-			addr = &sdata->pcb->remote_ip.addr;
-			addr_len = 4;
-			port = htons(sdata->pcb->remote_port);
+			/* BIND second message */
+			struct tcp_pcb *pcb = sdata->lwipevbuf->pcb;
+			req.atyp = IP_IS_V4(&pcb->remote_ip) ? SOCKS5_ATYP_IPV4 : SOCKS5_ATYP_IPV6;
+			addr = &pcb->remote_ip;
+			addr_len = IP_IS_V4(&pcb->remote_ip) ? 4 : 16;
+			port = htons(pcb->remote_port);
 		} else {
-			req.atyp = SOCKS5_ATYP_IPV4;
-			addr = &sdata->pcb->local_ip.addr;
-			addr_len = 4;
-			port = htons(sdata->pcb->local_port);
+			/* CONNECT or BIND first message*/
+			struct tcp_pcb *pcb = sdata->lwipevbuf->pcb;
+			req.atyp = IP_IS_V4(&pcb->local_ip) ? SOCKS5_ATYP_IPV4 : SOCKS5_ATYP_IPV6;
+			addr = &pcb->local_ip;
+			addr_len = IP_IS_V4(&pcb->local_ip) ? 4 : 16;
+			port = htons(pcb->local_port);
 		}
 	} else {
+		/*
+		 * RFC doesn't seem to spec what address info goes into
+		 * a failed reply. Just put the bare minimum.
+		 */
 		req.atyp = SOCKS5_ATYP_IPV4;
-		addr = &sdata->ipaddr.addr;
+		addr = &zero;
 		addr_len = 4;
-		port = sdata->port;
+		port = 0;
 	}
 	bufferevent_write(sdata->bev, &req, sizeof(req));
 	bufferevent_write(sdata->bev, addr, addr_len);
@@ -135,7 +150,7 @@ socks5_connect_ok(struct socks_data *sdata)
 
 	socks5_response(sdata, SOCKS5_RESP_GRANTED, 1, 0);
 
-	pipe_join(sdata->pcb, sdata->bev);
+	lwipevbuf_bev_join(sdata->bev, sdata->lwipevbuf, 256*1024, NULL, NULL, NULL, NULL, NULL, NULL);
 	free(data);
 }
 
@@ -149,75 +164,85 @@ static void
 socks5_udp_send(struct socks_data *data, struct pbuf *p)
 {
 	struct socks5_udp_hdr *hdr;
+#if LWIP_IPV4
+	struct socks5_udp_ipv4 *ipv4;
+#endif
+#if LWIP_IPV6
+	struct socks5_udp_ipv6 *ipv6;
+#endif
 	ip_addr_t ipaddr;
 	u_short port;
 	err_t err;
+	u_char *len;
+	char *fqdn;
 
 	hdr = p->payload;
 	if (pbuf_header(p, -(short) sizeof(*hdr))) {
 		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: runt\n", __func__));
-		pbuf_free(p);
 		return;
 	}
 
 	if (hdr->frag) {
 		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: frag not supported\n", __func__));
-		pbuf_free(p);
 		return;
 	}
 
-	if (hdr->atyp == SOCKS5_ATYP_IPV4) {
-		struct socks5_udp_ipv4 *ipv4;
+	switch (hdr->atyp) {
+
+#if LWIP_IPV4
+	case SOCKS5_ATYP_IPV4:
 		ipv4 = p->payload;
 		if (pbuf_header(p, -(short) sizeof(*ipv4))) {
 			LWIP_DEBUGF(SOCKS_DEBUG, ("%s: runt\n", __func__));
-			pbuf_free(p);
 			return;
 		}
-		ipaddr.addr = ipv4->addr;
+		raw_to_ip4_addr(&ipv4->addr, &ipaddr);
 		port = ntohs(ipv4->port);
-	} else if (hdr->atyp == SOCKS5_ATYP_FQDN) {
-		u_char *len;
-		char *fqdn;
+		break;
+#endif
+#if LWIP_IPV6
+	case SOCKS5_ATYP_IPV6:
+		ipv6 = p->payload;
+		if (pbuf_header(p, -(short) sizeof(*ipv6))) {
+			LWIP_DEBUGF(SOCKS_DEBUG, ("%s: runt\n", __func__));
+			return;
+		}
+		raw_to_ip6_addr(ipv6->addr, &ipaddr);
+		port = ntohs(ipv6->port);
+		break;
+#endif
+	case SOCKS5_ATYP_FQDN:
 		len = p->payload;
 		fqdn = p->payload + 1;
 		if (pbuf_header(p, -1) || pbuf_header(p, -(short) *len)) {
 			LWIP_DEBUGF(SOCKS_DEBUG, ("%s: runt\n", __func__));
-			pbuf_free(p);
 			return;
 		}
 		port = *((typeof(&port)) p->payload);
 		if (pbuf_header(p, -(short) sizeof(port))) {
 			LWIP_DEBUGF(SOCKS_DEBUG, ("%s: runt\n", __func__));
-			pbuf_free(p);
 			return;
 		}
 
 		if (!strncmp(data->host.fqdn, fqdn, *len) &&
 						!data->host.fqdn[*len]) {
 			/* Matches current lookup */
-			if (data->udp_queue) {
-				/* Still ongoing, enqueue */
-				struct pbuf *curr = data->udp_queue;
-				for (; curr->next; curr = curr->next);
-				curr->next = p;
+			if (host_busy(&data->host))
 				return;
-			} else
-				ipaddr.addr = data->host.ipaddr.addr;
-		} else if (!data->udp_queue) {
+			ipaddr = data->host.ipaddr;
+		} else {
 			/* New lookup */
+			if (host_busy(&data->host)) {
+				/* Concurrent DNS lookups drop waiting packet */
+				LWIP_DEBUGF(SOCKS_DEBUG, ("%s: concurrent lookup\n", __func__));
+			}
 			memcpy(data->host.fqdn, fqdn, *len);
 			data->host.fqdn[*len] = '\0';
-			data->udp_queue = p;
 			host_lookup(&data->host);
 			return;
-		} else {
-			/* Concurrent DNS lookups not allowed */
-			LWIP_DEBUGF(SOCKS_DEBUG, ("%s: concurrent lookup\n", __func__));
-			pbuf_free(p);
-			return;
 		}
-	} else {
+		break;
+	default:
 		/* Unsupported */
 		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: Unsupported address type\n", __func__));
 		return;
@@ -247,11 +272,11 @@ socks5_udp_recv(struct socks_data *data, struct pbuf *p,
 	}
 	*((typeof(&port)) p->payload) = port;
 
-	if (pbuf_header(p, sizeof(addr->addr))) {
+	if (pbuf_header(p, IP_IS_V4(addr) ? 4 : 16)) {
 		/* Not enough header space */
 		return;
 	}
-	*((u32_t *) p->payload) = addr->addr;
+	memcpy(p->payload, &addr, IP_IS_V4(addr) ? 4 : 16);
 
 	if (pbuf_header(p, sizeof(*hdr))) {
 		/* Not enough header space */
@@ -269,21 +294,13 @@ socks5_udp_recv(struct socks_data *data, struct pbuf *p,
 }
 
 static void
-socks5_read_port(struct socks_data *sdata)
+socks5_lookup_done(struct socks_data *sdata)
 {
 	struct socks5_data *data;
 	struct event_base *base;
  	data = container_of(sdata, struct socks5_data, socks);
 
-	bufferevent_read(sdata->bev, &sdata->port, 2);
-	sdata->port = ntohs(sdata->port);
-
-	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: port %d\n", __func__, sdata->port));
-
 	switch (data->cmd) {
-	case SOCKS5_CMD_CONNECT:
-		socks_tcp_connect(sdata);
-		break;
 	case SOCKS5_CMD_BIND:
 		if (socks_tcp_bind(sdata) < 0) {
 			socks5_response(sdata, SOCKS5_RESP_FAILURE, 0, 1);
@@ -314,60 +331,87 @@ socks5_read_port(struct socks_data *sdata)
 }
 
 static void
-socks5_read_ipv4(struct socks_data *sdata)
-{
-	bufferevent_read(sdata->bev, &sdata->ipaddr.addr, 4);
-	socks_request(sdata, 2, socks5_read_port);
-}
-
-static void
 socks5_host_found(struct host_data *hdata)
 {
 	struct socks_data *sdata;
-	struct socks5_data *data;
 
 	sdata = container_of(hdata, struct socks_data, host);
-	data = container_of(sdata, struct socks5_data, socks);
 
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s\n", __func__));
 
-	if (data->cmd == SOCKS5_CMD_UDP) {
-		while (sdata->udp_queue) {
-			/* Empty the send queue */
-			struct pbuf *p = sdata->udp_queue;
-			u16_t port;
-			sdata->udp_queue = p->next;
-			p->next = NULL;
-			port = *((typeof(&port)) (p->payload - 2));
-			udp_sendto(sdata->upcb, p, &hdata->ipaddr, port);
-			pbuf_free(p);
-		}
-	} else {
-		sdata->ipaddr = hdata->ipaddr;
-		socks_request(sdata, 2, socks5_read_port);
-	}
+	if (sdata->udp_pbuf) {
+		u16_t port;
+		port = *((typeof(&port)) (sdata->udp_pbuf->payload - 2));
+
+#if LWIP_IPV4
+		if (IP_IS_V4(&hdata->ipaddr))
+			udp_sendto(sdata->upcb4, sdata->udp_pbuf, &hdata->ipaddr, port);
+#endif
+#if LWIP_IPV6
+		if (IP_IS_V6(&hdata->ipaddr))
+			udp_sendto(sdata->upcb6, sdata->udp_pbuf, &hdata->ipaddr, port);
+#endif
+	} else
+		socks5_lookup_done(sdata);
 }
 
 static void
-socks5_host_failed(struct host_data *hdata)
+socks5_host_failed(struct host_data *hdata, err_t err)
 {
 	struct socks_data *sdata;
-	struct socks5_data *data;
 
 	sdata = container_of(hdata, struct socks_data, host);
-	data = container_of(sdata, struct socks5_data, socks);
 
-	LWIP_DEBUGF(SOCKS_DEBUG, ("%s\n", __func__));
-	if (data->cmd == SOCKS5_CMD_UDP) {
-		while (sdata->udp_queue) {
-			/* Free the send queue */
-			struct pbuf *p = sdata->udp_queue;
-			sdata->udp_queue = p->next;
-			pbuf_free(p);
-		}
+	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: %s\n", __func__, lwip_strerr(err)));
+
+	if (sdata->udp_pbuf) {
+		/* Matching fqdn indicates lookup success */
+		sdata->host.fqdn[0] = '\0';
 	} else
 		socks5_response(sdata, SOCKS5_RESP_FAILURE, 0, 1);
 }
+
+static void
+socks5_read_port(struct socks_data *sdata)
+{
+	struct socks5_data *data;
+ 	data = container_of(sdata, struct socks5_data, socks);
+
+	bufferevent_read(sdata->bev, &sdata->port, 2);
+	sdata->port = ntohs(sdata->port);
+
+	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: port %d\n", __func__, sdata->port));
+
+	if (data->cmd == SOCKS5_CMD_CONNECT) {
+		if (sdata->host.fqdn[0])
+			socks_tcp_connect_hostname(sdata);
+		else
+			socks_tcp_connect(sdata);
+	} else if (sdata->host.fqdn[0]) {
+		bufferevent_disable(sdata->bev, EV_READ);
+		host_lookup(&sdata->host);
+	} else {
+		socks5_lookup_done(sdata);
+	}
+}
+
+#if LWIP_IPV4
+static void
+socks5_read_ipv4(struct socks_data *sdata)
+{
+	bufferevent_read(sdata->bev, &sdata->ipaddr, 4);
+	socks_request(sdata, 2, socks5_read_port);
+}
+#endif
+
+#if LWIP_IPV6
+static void
+socks5_read_ipv6(struct socks_data *sdata)
+{
+	bufferevent_read(sdata->bev, &sdata->ipaddr, 16);
+	socks_request(sdata, 2, socks5_read_port);
+}
+#endif
 
 static void
 socks5_read_fqdn(struct socks_data *sdata)
@@ -375,8 +419,10 @@ socks5_read_fqdn(struct socks_data *sdata)
 	bufferevent_read(sdata->bev, sdata->host.fqdn, sdata->req_len);
 	sdata->host.fqdn[sdata->req_len] = '\0';
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: fqdn %s\n", __func__, sdata->host.fqdn));
-	bufferevent_disable(sdata->bev, EV_READ);
-	host_lookup(&sdata->host);
+	if (!sdata->host.fqdn[0])
+		socks5_response(sdata, SOCKS5_RESP_CMD_UNSUP, 0, 1);
+	else
+		socks_request(sdata, 2, socks5_read_port);
 }
 
 static void
@@ -410,12 +456,27 @@ socks5_read_hdr(struct socks_data *sdata)
 
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: cmd %d, atyp %d\n", __func__, req.cmd, req.atyp));
 
-	if (req.atyp == SOCKS5_ATYP_IPV4)
+	sdata->host.fqdn[0] = '\0';
+
+	switch (req.atyp) {
+#if LWIP_IPV4
+	case SOCKS5_ATYP_IPV4:
+		IP_SET_TYPE(&sdata->ipaddr, IPADDR_TYPE_V4);
 		socks_request(sdata, 4, socks5_read_ipv4);
-	else if (req.atyp == SOCKS5_ATYP_FQDN)
+		break;
+#endif
+#if LWIP_IPV6
+	case SOCKS5_ATYP_IPV6:
+		IP_SET_TYPE(&sdata->ipaddr, IPADDR_TYPE_V6);
+		socks_request(sdata, 16, socks5_read_ipv6);
+		break;
+#endif
+	case SOCKS5_ATYP_FQDN:	
 		socks_request(sdata, 1, socks5_read_n_fqdn);
-	else
+		break;
+	default:
 		socks5_response(sdata, SOCKS5_RESP_ADDR_UNSUP, 0, 1);
+	}
 }
 
 static void

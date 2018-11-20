@@ -11,6 +11,7 @@ struct bufferevent;
 struct tcp_pcb;
 struct udp_pcb;
 struct pbuf;
+struct lwipevbuf;
 
 struct socks_server {
 	int keep_alive;
@@ -24,7 +25,7 @@ struct socks_data {
 	ip_addr_t ipaddr;
 	u_int16_t port;
 	struct host_data host;
-	struct tcp_pcb *pcb;
+	struct lwipevbuf *lwipevbuf;
 	struct bufferevent *bev;
 	void (*connect_ok)(struct socks_data*);
 	void (*connect_failed)(struct socks_data*);
@@ -46,8 +47,7 @@ struct socks_data {
 	void (*udp_recv)(struct socks_data*, struct pbuf*,
 				const ip_addr_t*, u16_t);
 	void (*udp_send)(struct socks_data*, struct pbuf*);
-	struct pbuf *udp_queue;
-	struct event *udp_event;
+	struct event *udp_event; /* Provides notification callbacks for linux side */
 	struct pbuf *udp_pbuf;
 	int udp_pbuf_len;
 };
@@ -57,6 +57,7 @@ void socks_flush(struct socks_data *data);
 int socks_udp_bind(struct event_base *base, struct socks_data *data);
 int socks_tcp_bind(struct socks_data *data);
 void socks_tcp_connect(struct socks_data *data);
+void socks_tcp_connect_hostname(struct socks_data *data);
 void socks_request(struct socks_data *data, int n,
 				void (*cb)(struct socks_data*));
 int socks_listen(struct event_base *base, const char *host,

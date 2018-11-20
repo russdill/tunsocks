@@ -7,7 +7,10 @@
 #include "container_of.h"
 #include "socks.h"
 #include "socks4.h"
-#include "pipe.h"
+
+#include "util/lwipevbuf_bev_join.h"
+#include "util/sockaddr.h"
+#include "util/lwipevbuf.h"
 
 #if LWIP_IPV4
 
@@ -49,12 +52,13 @@ socks4_response(struct socks_data *sdata, int code, int connected, int die)
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: %d%s\n", __func__, code,
 							die ? " die" : ""));
 	if (!die) {
+		struct tcp_pcb *pcb = sdata->lwipevbuf->pcb;
 		if (connected && data->cmd == SOCKS4_CMD_BIND) {
-			hdr.port = htons(sdata->pcb->remote_port);
-			hdr.addr = sdata->pcb->remote_ip.addr;
+			hdr.port = htons(pcb->remote_port);
+			hdr.addr = ip4_addr_get_u32(ip_2_ip4(&pcb->remote_ip));
 		} else {
-			hdr.port = htons(sdata->pcb->local_port);
-			hdr.addr = sdata->pcb->local_ip.addr;
+			hdr.port = htons(pcb->local_port);
+			hdr.addr = ip4_addr_get_u32(ip_2_ip4(&pcb->local_ip));
 		}
 	} else {
 		hdr.port = 0;
@@ -75,7 +79,7 @@ socks4_connect_ok(struct socks_data *sdata)
 
 	socks4_response(sdata, SOCKS4_RESP_GRANT, 1, 0);
 
-	pipe_join(sdata->pcb, sdata->bev);
+	lwipevbuf_bev_join(sdata->bev, sdata->lwipevbuf, 256*1024, NULL, NULL, NULL, NULL, NULL, NULL);
 	free(data);
 }
 
@@ -92,10 +96,7 @@ socks4_connect(struct socks_data *sdata)
 	data = container_of(sdata, struct socks4_data, socks);
 
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s\n", __func__));
-	if (data->cmd == SOCKS4_CMD_RESOLVE)
-		socks4_response(sdata, SOCKS4_RESP_GRANT, 0, 1);
-
-	else if (data->cmd == SOCKS4_CMD_CONNECT)
+	if (data->cmd == SOCKS4_CMD_CONNECT)
 		socks_tcp_connect(sdata);
 
 	else if (socks_tcp_bind(sdata) < 0)
@@ -116,14 +117,14 @@ socks4_host_found(struct host_data *hdata)
 	struct socks_data *sdata = container_of(hdata, struct socks_data, host);
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s\n", __func__));
 	sdata->ipaddr = hdata->ipaddr;
-	socks4_connect(sdata);
+	socks4_response(sdata, SOCKS4_RESP_GRANT, 0, 1);
 }
 
 static void
-socks4_host_failed(struct host_data *hdata)
+socks4_host_failed(struct host_data *hdata, err_t err)
 {
 	struct socks_data *sdata = container_of(hdata, struct socks_data, host);
-	LWIP_DEBUGF(SOCKS_DEBUG, ("%s\n", __func__));
+	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: %s\n", __func__, lwip_strerr(err)));
 	socks4_response(sdata, SOCKS4_RESP_REJECT, 0, 1);
 }
 
@@ -139,7 +140,10 @@ socks4_read_fqdn(struct socks_data *sdata)
 		sdata->host.fqdn[data->pos] = ch;
 		if (!ch) {
 			bufferevent_disable(sdata->bev, EV_READ);
-			host_lookup(&sdata->host);
+			if (data->cmd == SOCKS4_CMD_RESOLVE)
+				host_lookup(&sdata->host);
+			else
+				socks_tcp_connect_hostname(sdata);
 			return;
 		}
 		data->pos++;

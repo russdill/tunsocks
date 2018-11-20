@@ -16,22 +16,43 @@
 #include "socks5.h"
 #include "util/host.h"
 #include "container_of.h"
+#include "util/sockaddr.h"
+#include "util/lwipevbuf.h"
 
 void
 socks_kill(struct socks_data *data)
 {
-	bufferevent_free(data->bev);
-	data->bev = NULL;
+	if (data->bev) {
+		bufferevent_free(data->bev);
+		data->bev = NULL;
+	}
 	host_abort(&data->host);
-	if (data->pcb) {
-		tcp_err(data->pcb, NULL);
-		tcp_abort(data->pcb);
-		data->pcb = NULL;
+	if (data->lwipevbuf) {
+		lwipevbuf_free(data->lwipevbuf);
+		data->lwipevbuf = NULL;
 	}
-	if (data->upcb) {
-		udp_remove(data->upcb);
-		data->upcb = NULL;
+#if LWIP_IPV4
+	if (data->listen_pcb4) {
+		tcp_err(data->listen_pcb4, NULL);
+		tcp_abort(data->listen_pcb4);
+		data->listen_pcb4 = NULL;
 	}
+	if (data->upcb4) {
+		udp_remove(data->upcb4);
+		data->upcb4 = NULL;
+	}
+#endif
+#if LWIP_IPV6
+	if (data->listen_pcb6) {
+		tcp_err(data->listen_pcb6, NULL);
+		tcp_abort(data->listen_pcb6);
+		data->listen_pcb6 = NULL;
+	}
+	if (data->upcb6) {
+		udp_remove(data->upcb6);
+		data->upcb6 = NULL;
+	}
+#endif
 	if (data->udp_event) {
 		event_free(data->udp_event);
 		data->udp_event = NULL;
@@ -44,29 +65,36 @@ socks_kill(struct socks_data *data)
 }
 
 static void
-socks_flush_fin(struct bufferevent *bev, void *ctx)
+bufferevent_finish_writecb(struct bufferevent *bev, void *ctx)
 {
-	socks_kill(ctx);
+	struct evbuffer *buf = bufferevent_get_output(bev);
+	if (!evbuffer_get_length(buf))
+		bufferevent_free(bev);
 }
 
 static void
-socks_request_error(struct bufferevent *bev, short events, void *ctx)
+bufferevent_finish_eventcb(struct bufferevent *bev, short events, void *ctx)
 {
-	socks_kill(ctx);
+	if (events & (BEV_EVENT_ERROR|BEV_EVENT_EOF))
+		bufferevent_free(bev);
+}
+
+static void
+bufferevent_finish(struct bufferevent *bev)
+{
+	bufferevent_disable(bev, EV_READ);
+	bufferevent_setwatermark(bev, EV_WRITE, 0, 0);
+	bufferevent_setcb(bev, NULL, bufferevent_finish_writecb,
+				bufferevent_finish_eventcb, NULL);
+	bufferevent_finish_writecb(bev, NULL);
 }
 
 void
 socks_flush(struct socks_data *data)
 {
-	struct evbuffer *buf;
-	buf = bufferevent_get_output(data->bev);
-	if (evbuffer_get_length(buf)) {
-		bufferevent_disable(data->bev, EV_READ);
-		bufferevent_setwatermark(data->bev, EV_WRITE, 0, 262144);
-		bufferevent_setcb(data->bev, NULL, socks_flush_fin,
-				socks_request_error, data);
-	} else
-		socks_flush_fin(data->bev, data);
+	bufferevent_finish(data->bev);
+	data->bev = NULL;
+	socks_kill(data);
 }
 
 static void
@@ -75,6 +103,7 @@ socks_udp_recv(void *priv, struct udp_pcb *pcb, struct pbuf *p,
 {
 	struct socks_data *data = priv;
 	data->udp_recv(data, p, addr, port);
+	pbuf_free(p);
 }
 
 static void
@@ -105,16 +134,32 @@ socks_udp_read(const int fd, short int method, void *priv)
 	data->udp_send(data, p);
 }
 
+struct udp_pcb *
+socks_udp_bind_pcb(struct socks_data *data, const ip_addr_t *ipaddr)
+{
+	struct udp_pcb *pcb = udp_new();
+	if (!pcb)
+		return NULL;
+
+	if (udp_bind(pcb, ipaddr, data->port) < 0) {
+		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: udp_bind failed\n", __func__));
+		udp_remove(pcb);
+		return NULL;
+	}
+
+	udp_recv(pcb, socks_udp_recv, data);
+
+	return pcb;
+}
+
 int
 socks_udp_bind(struct event_base *base, struct socks_data *data)
 {
 	struct event *event;
-	struct udp_pcb *pcb;
-	struct sockaddr_in *si;
 	struct sockaddr addr;
 	socklen_t addrlen;
 	int fd;
-	err_t ret;
+	int success = 0;
 
 	memcpy(&addr, &data->server->addr, data->server->addr_len);
 	if (addr.sa_family == AF_INET)
@@ -126,7 +171,7 @@ socks_udp_bind(struct event_base *base, struct socks_data *data)
 		return -1;
 	}
 
-	fd = socket(AF_INET, SOCK_DGRAM|O_NONBLOCK, IPPROTO_UDP);
+	fd = socket(addr.sa_family, SOCK_DGRAM|O_NONBLOCK, IPPROTO_UDP);
 	if (fd < 0) {
 		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: socket %m\n", __func__));
 		return -1;
@@ -153,13 +198,13 @@ socks_udp_bind(struct event_base *base, struct socks_data *data)
 		data->udp_port =
 			ntohs(((struct sockaddr_in6 *) &addr)->sin6_port);
 
-	si = (struct sockaddr_in *) &addr;
-	memset(si, 0, sizeof(*si));
-	si->sin_family = AF_INET;
-	si->sin_addr.s_addr = data->ipaddr.addr;
-	si->sin_port = ntohs(data->port);
+	addrlen = sizeof(addr);
+	if (ip_addr_to_sockaddr(&data->ipaddr, data->port, &addr, &addrlen) < 0) {
+		close(fd);
+		return -1;
+	}
 
-	if (connect(fd, (struct sockaddr *) si, sizeof(*si)) < 0) {
+	if (connect(fd, &addr, addrlen) < 0) {
 		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: connect %m\n", __func__));
 		close(fd);
 		return -1;
@@ -168,28 +213,26 @@ socks_udp_bind(struct event_base *base, struct socks_data *data)
 	event = event_new(base, fd, EV_READ|EV_PERSIST, socks_udp_read, data);
 	event_add(event, NULL);
 
-	pcb = udp_new();
-	if (!pcb) {
+#if LWIP_IPV4
+	data->upcb4 = socks_udp_bind_pcb(data, IP4_ADDR_ANY);
+	if (data->upcb4)
+		success = 1;
+#endif
+#if LWIP_IPV6
+	data->upcb6 = socks_udp_bind_pcb(data, IP6_ADDR_ANY);
+	if (data->upcb6)
+		success = 1;
+#endif
+
+	if (!success) {
 		event_free(event);
 		close(fd);
 		return -1;
 	}
-
-	ret = udp_bind(pcb, IP_ADDR_ANY, data->port);
-	if (ret < 0) {
-		LWIP_DEBUGF(SOCKS_DEBUG, ("%s: udp_bind failed\n", __func__));
-		udp_remove(pcb);
-		event_free(event);
-		close(fd);
-		return -1;
-	}
-
-	udp_recv(pcb, socks_udp_recv, data);
 
 	data->udp_pbuf = pbuf_alloc(PBUF_RAW, 2048, PBUF_RAM);
 	data->udp_pbuf_len = 2048;
 	data->udp_fd = fd;
-	data->upcb = pcb;
 	data->udp_event = event;
 
 	return 0;
@@ -205,10 +248,17 @@ socks_tcp_accept(void *ctx, struct tcp_pcb *pcb, err_t err)
 		return err;
 	}
 
-	tcp_abort(data->pcb);
-	data->pcb = pcb;
+#if LWIP_IPV4
+	tcp_abort(data->listen_pcb4);
+	data->listen_pcb4 = NULL;
+#endif
+#if LWIP_IPV6
+	tcp_abort(data->listen_pcb6);
+	data->listen_pcb6 = NULL;
+#endif
 
-	pcb->flags |= TF_NODELAY;
+	data->lwipevbuf = lwipevbuf_new(pcb);
+
 	if (data->server->keep_alive) {
 		pcb->so_options |= SOF_KEEPALIVE;
 		pcb->keep_intvl = data->server->keep_alive;
@@ -218,88 +268,122 @@ socks_tcp_accept(void *ctx, struct tcp_pcb *pcb, err_t err)
 	data->connect_ok(data);
 
 	return ERR_OK;
+}
+
+static struct tcp_pcb *
+socks_tcp_listen(struct socks_data *data, const ip_addr_t *ipaddr)
+{
+	struct tcp_pcb *pcb, *listen_pcb;
+	err_t ret;
+
+	pcb = tcp_new();
+	if (!pcb)
+		return NULL;
+
+	ip_set_option(pcb, SOF_REUSEADDR);
+
+	/* FIXME: Listen on both when dual stack */
+	ret = tcp_bind(pcb, ipaddr, data->port);
+	if (ret < 0) {
+		tcp_abort(pcb);
+		return NULL;
+	}
+
+	listen_pcb = tcp_listen(pcb);
+	if (!listen_pcb) {
+		tcp_abort(pcb);
+		return NULL;
+	}
+
+	tcp_arg(listen_pcb, data);
+	tcp_accept(listen_pcb, socks_tcp_accept);
+
+	return listen_pcb;
 }
 
 int
 socks_tcp_bind(struct socks_data *data)
 {
-	struct tcp_pcb *pcb;
-	err_t ret;
+	int ret = -1;
+#if LWIP_IPV4
+	data->listen_pcb4 = socks_tcp_listen(data, IP4_ADDR_ANY);
+	if (data->listen_pcb4)
+		ret = 0;
+#endif
+#if LWIP_IPV6
+	data->listen_pcb6 = socks_tcp_listen(data, IP6_ADDR_ANY);
+	if (data->listen_pcb6)
+		ret = 0;
+#endif
 
-	pcb = tcp_new();
-	if (!pcb)
-		return -1;
-
-	pcb->flags |= TF_NODELAY;
-	ip_set_option(pcb, SOF_REUSEADDR);
-
-	ret = tcp_bind(pcb, IP_ADDR_ANY, data->port);
-	if (ret < 0) {
-		tcp_abort(pcb);
-		return -1;
-	}
-
-	data->pcb = tcp_listen(pcb);
-	if (!data->pcb) {
-		tcp_abort(pcb);
-		return -1;
-	}
-
-	tcp_arg(data->pcb, data);
-	tcp_accept(data->pcb, socks_tcp_accept);
-
-	return 0;
+	return ret;
 }
 
 static void
-socks_tcp_connect_err(void *ctx, err_t err)
+socks_tcp_eventcb(struct lwipevbuf *bev, short what, void *ctx)
 {
 	struct socks_data *data = ctx;
+
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s\n", __func__));
-	data->pcb = NULL;
-	data->connect_failed(data);
+
+	if (what & BEV_EVENT_CONNECTED) {
+		data->connect_ok(data);
+	} else {
+		lwipevbuf_free(data->lwipevbuf);
+		data->lwipevbuf = NULL;
+		data->connect_failed(data);
+	}
 }
 
-static err_t
-socks_tcp_connect_ok(void *ctx, struct tcp_pcb *pcb, err_t err)
+static void
+socks_tcp_connect_init(struct socks_data *data)
 {
-	struct socks_data *data = ctx;
-	LWIP_DEBUGF(SOCKS_DEBUG, ("%s\n", __func__));
-	data->connect_ok(data);
-	return ERR_OK;
+	struct lwipevbuf *lwipevbuf;
+
+	bufferevent_disable(data->bev, EV_READ);
+	lwipevbuf = lwipevbuf_new(NULL);
+	if (data->server->keep_alive) {
+		lwipevbuf->pcb->so_options |= SOF_KEEPALIVE;
+		lwipevbuf->pcb->keep_intvl = data->server->keep_alive;
+		lwipevbuf->pcb->keep_idle = data->server->keep_alive;
+	}
+	data->lwipevbuf = lwipevbuf;
+
+	lwipevbuf_setcb(lwipevbuf, NULL, NULL, socks_tcp_eventcb, data);
 }
 
 void
 socks_tcp_connect(struct socks_data *data)
 {
-	struct tcp_pcb *pcb;
-	err_t ret;
+	struct sockaddr addr;
+	socklen_t addrlen;
 
-	bufferevent_disable(data->bev, EV_READ);
+	socks_tcp_connect_init(data);
 
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: %s:%d\n", __func__,
 				ipaddr_ntoa(&data->ipaddr), data->port));
 
-	pcb = tcp_new();
-	if (!pcb)
-		data->connect_failed(data);
+	addrlen = sizeof(addr);
+	ip_addr_to_sockaddr(&data->ipaddr, data->port, &addr, &addrlen);
 
-	pcb->flags |= TF_NODELAY;
-	if (data->server->keep_alive) {
-		pcb->so_options |= SOF_KEEPALIVE;
-		pcb->keep_intvl = data->server->keep_alive;
-		pcb->keep_idle = data->server->keep_alive;
-	}
+	lwipevbuf_connect(data->lwipevbuf, &addr, addrlen);
+}
 
-	ret = tcp_connect(pcb, &data->ipaddr, data->port, socks_tcp_connect_ok);
-	if (ret < 0) {
-		tcp_abort(pcb);
-		data->connect_failed(data);
-	} else {
-		data->pcb = pcb;
-		tcp_arg(pcb, data);
-		tcp_err(pcb, socks_tcp_connect_err);
-	}
+void
+socks_tcp_connect_hostname(struct socks_data *data)
+{
+	socks_tcp_connect_init(data);
+
+	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: %s:%d\n", __func__,
+				data->host.fqdn, data->port));
+
+	lwipevbuf_connect_hostname(data->lwipevbuf, AF_UNSPEC, data->host.fqdn, data->port);
+}
+
+static void
+socks_request_eventcb(struct bufferevent *bev, short what, void *ctx)
+{
+	socks_kill(ctx);
 }
 
 static void
@@ -309,9 +393,9 @@ socks_request_cb(struct bufferevent *bev, void *ctx)
 
 	if (evbuffer_get_length(bufferevent_get_input(bev)) < data->req_len) {
 		bufferevent_enable(bev, EV_READ);
-		bufferevent_setwatermark(bev, EV_READ, data->req_len, 262144);
+		bufferevent_setwatermark(bev, EV_READ, data->req_len, 256*1024);
 		bufferevent_setcb(bev, socks_request_cb, NULL,
-					socks_request_error, ctx);
+					socks_request_eventcb, ctx);
 	} else
 		data->req_cb(ctx);
 }
