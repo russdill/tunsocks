@@ -7,9 +7,9 @@
 #include <lwip/tcp.h>
 #include <lwip/priv/tcp_priv.h>
 
-#include "container_of.h"
-#include "pipe.h"
 #include "forward_local.h"
+#include "util/lwipevbuf.h"
+#include "util/lwipevbuf_bev_join.h"
 
 struct forward_remote {
 	char *host;
@@ -17,99 +17,29 @@ struct forward_remote {
 	int keep_alive;
 };
 
-struct forward_data {
-	struct forward_remote *remote;
-	struct bufferevent *bev;
-	struct tcp_pcb *pcb;
-	struct host_data host;
-};
-
-static void forward_free(struct forward_data *data)
-{
-	bufferevent_free(data->bev);
-	if (data->pcb) {
-		tcp_err(data->pcb, NULL);
-		tcp_abort(data->pcb);
-	}
-	host_abort(&data->host);
-	free(data);
-}
-
-static void forward_tcp_connect_err(void *ctx, err_t err)
-{
-	forward_free(ctx);
-}
-
-static err_t forward_tcp_connect_ok(void *ctx, struct tcp_pcb *pcb, err_t err)
-{
-	struct forward_data *data = ctx;
-	pipe_join(pcb, data->bev);
-	free(data);
-	return ERR_OK;
-}
-
-static void forward_host_found(struct host_data *hdata)
-{
-	struct forward_data *data;
-	struct tcp_pcb *pcb;
-	err_t ret;
-
-	data = container_of(hdata, struct forward_data, host);
-
-	pcb = tcp_new();
-	if (!pcb) {
-		forward_free(data);
-		return;
-	}
-
-	pcb->flags |= TF_NODELAY;
-	if (data->remote->keep_alive) {
-		pcb->so_options |= SOF_KEEPALIVE;
-		pcb->keep_intvl = data->remote->keep_alive;
-		pcb->keep_idle = data->remote->keep_alive;
-	}
-
-	ret = tcp_connect(pcb, &data->host.ipaddr, data->remote->port,
-					forward_tcp_connect_ok);
-	if (ret < 0)
-		forward_free(data);
-	else {
-		data->pcb = pcb;
-		tcp_arg(pcb, data);
-		tcp_err(pcb, forward_tcp_connect_err);
-	}
-}
-
-static void forward_host_failed(struct host_data *hdata)
-{
-	struct forward_data *data;
-	data = container_of(hdata, struct forward_data, host);
-	forward_free(data);
-}
-
-static void forward_error(struct bufferevent *bev, short events, void *ctx)
-{
-	forward_free(ctx);
-}
-
 static void forward_local_accept(struct evconnlistener *evl,
 	evutil_socket_t new_fd, struct sockaddr *addr, int socklen, void *ctx)
 {
 	struct event_base *base = evconnlistener_get_base(evl);
 	struct forward_remote *remote = ctx;
-	struct forward_data *data;
+	struct lwipevbuf *lwipevbuf;
+	struct bufferevent *bev;
 
-	data = calloc(1, sizeof(*data));
-	data->remote = remote;
-	data->host.found = forward_host_found;
-	data->host.failed = forward_host_failed;
-	strncpy(data->host.fqdn, remote->host, sizeof(data->host.fqdn));
-	data->host.fqdn[sizeof(data->host.fqdn) - 1] = '\0';
+	lwipevbuf = lwipevbuf_new(NULL);
 
-	data->bev = bufferevent_socket_new(base, new_fd, BEV_OPT_CLOSE_ON_FREE);
-	bufferevent_setcb(data->bev, NULL, NULL, forward_error, NULL);
+	if (remote->keep_alive) {
+		lwipevbuf->pcb->so_options |= SOF_KEEPALIVE;
+		lwipevbuf->pcb->keep_intvl = remote->keep_alive;
+		lwipevbuf->pcb->keep_idle = remote->keep_alive;
+	}
 
-	host_lookup(&data->host);
+	if (lwipevbuf_connect_hostname(lwipevbuf, AF_UNSPEC, remote->host, remote->port) < 0) {
+		lwipevbuf_free(lwipevbuf);
+		return;
+	}
+
+	bev = bufferevent_socket_new(base, new_fd, BEV_OPT_CLOSE_ON_FREE);
+	lwipevbuf_bev_join(bev, lwipevbuf, 256*1024, NULL, NULL, NULL, NULL, NULL, NULL);
 }
 
 #ifndef LEV_OPT_DEFERRED_ACCEPT

@@ -36,6 +36,9 @@ tunsocks_SOURCES = \
 	lwip-libevent/netif/slirpif.c \
 	lwip-libevent/netif/slirpif_tcp.c \
 	lwip-libevent/netif/slirpif_udp.c \
+	lwip-libevent/util/sockaddr.c \
+	lwip-libevent/util/lwipevbuf.c \
+	lwip-libevent/util/lwipevbuf_bev_join.c \
 	lwip-libevent/util/host.c \
 	lwip-libevent/util/pbuf_iovec.c \
 	lwip-libevent/util/nettest.c \
