@@ -4,6 +4,7 @@ AM_CFLAGS=\
 	-I$(srcdir)/lwip/src/include/ipv6 \
 	-I$(srcdir)/lwip-libevent/include \
 	-I$(srcdir)/lwip-udhcpd \
+	-I$(srcdir)/lwip-nat/include \
 	-I$(srcdir)/include -Wall -Og -g
 
 if HAVE_PCAP
@@ -50,11 +51,19 @@ tunsocks_SOURCES = \
 	lwip-libevent/util/pbuf_iovec.c \
 	lwip-libevent/util/nettest.c \
 	lwip-libevent/libevent.c \
+	lwip-nat/ip4_prerouting_hook.c \
+	lwip-nat/ip4_input_nat.c \
+	lwip-nat/nat_proto_tcp.c \
+	lwip-nat/nat_proto_udp.c \
+	lwip-nat/nat_proto_icmp4.c \
+	lwip-nat/nat_proto_ip4.c \
+	lwip-nat/nat.c \
 	src/socks4.c \
 	src/socks5.c \
 	src/socks.c \
 	src/forward_local.c \
 	src/forward_remote.c \
+	src/nat.c \
 	src/dhcp_server.c \
 	src/main.c
 

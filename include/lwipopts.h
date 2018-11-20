@@ -39,6 +39,11 @@
 #define SYS_LIGHTWEIGHT_PROT		0
 #define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS
 
+struct pbuf;
+struct netif;
+extern int ip4_input_nat(struct pbuf *p, struct netif *inp);
+#define LWIP_HOOK_IP4_INPUT		ip4_input_nat
+
 #define MEM_LIBC_MALLOC			1
 #define MEMP_MEM_MALLOC			1
 #define MEM_ALIGNMENT			4
@@ -58,6 +63,11 @@
 #define LWIP_ICMP			1
 #define LWIP_TCP_KEEPALIVE		1
 #define LWIP_TCP_TIMESTAMPS		1
+#define IP_FORWARD			1
+#define LWIP_NAT			1
+#define LWIP_NAT_ICMP			1
+#define LWIP_NAT_ICMP_IP		1
+#define LWIP_NAT_USE_OLDEST		1
 #define LWIP_ETHERNET			1
 #define LWIP_DNS			1
 #define LWIP_WND_SCALE			8
@@ -83,6 +93,7 @@
 
 #define LWIP_DEBUG			0
 #define NETIF_DEBUG			LWIP_DBG_OFF
+#define NAT_DEBUG			LWIP_DBG_OFF
 #define SLIRPIF_DEBUG			LWIP_DBG_OFF
 #define SOCKS_DEBUG			LWIP_DBG_OFF
 #define UDHCP_DEBUG			LWIP_DBG_OFF

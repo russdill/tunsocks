@@ -14,6 +14,9 @@
 #include "util/host.h"
 #include "forward_local.h"
 #include "forward_remote.h"
+#include "nat.h"
+
+#include "nat/nat.h"
 #include "util/pcap.h"
 #include "util/nettest.h"
 #include "util/libevent.h"
