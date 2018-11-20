@@ -7,6 +7,8 @@ AM_CFLAGS=\
 	-I$(srcdir)/lwip-nat/include \
 	-I$(srcdir)/include -Wall -Og -g
 
+tunsocks_LDADD = -ldl
+
 if HAVE_PCAP
 AM_CFLAGS += -DUSE_PCAP
 tunsocks_LDADD += $(PCAP_LIBS)
@@ -44,6 +46,10 @@ tunsocks_SOURCES = \
 	lwip-libevent/netif/slirpif.c \
 	lwip-libevent/netif/slirpif_tcp.c \
 	lwip-libevent/netif/slirpif_udp.c \
+	lwip-libevent/netif/udptapif.c \
+	lwip-libevent/netif/tunif.c \
+	lwip-libevent/netif/vdeportif.c \
+	lwip-libevent/netif/vdeswitchif.c \
 	lwip-libevent/util/sockaddr.c \
 	lwip-libevent/util/lwipevbuf.c \
 	lwip-libevent/util/lwipevbuf_bev_join.c \

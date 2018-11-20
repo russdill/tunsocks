@@ -93,7 +93,9 @@ extern int ip4_input_nat(struct pbuf *p, struct netif *inp);
 
 #define LWIP_DEBUG			0
 #define NETIF_DEBUG			LWIP_DBG_OFF
+#define TAPNAT_DEBUG			LWIP_DBG_OFF
 #define NAT_DEBUG			LWIP_DBG_OFF
+#define ETHARP_DEBUG			LWIP_DBG_OFF
 #define SLIRPIF_DEBUG			LWIP_DBG_OFF
 #define SOCKS_DEBUG			LWIP_DBG_OFF
 #define UDHCP_DEBUG			LWIP_DBG_OFF

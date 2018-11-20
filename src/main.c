@@ -23,6 +23,11 @@
 
 #include "netif/fdif.h"
 #include "netif/slirpif.h"
+#include "netif/udptapif.h"
+#include "netif/vdeportif.h"
+#include "netif/vdeswitchif.h"
+#include "netif/tunif.h"
+
 struct conn_info {
 	char *bind;
 	char *bind_port;
@@ -135,6 +140,12 @@ static void print_usage(const char *argv0)
 #ifdef USE_PCAP
 "    -p pcap_file[:netif] (Default netif 'fd', VPN input)\n"
 #endif
+"    -u port (UDP listener port of TAP NAT with no length header, netif=ut)\n"
+"    -U port (UDP listener port of TAP NAT with 2 byte length header, netif=ut)\n"
+"    -v VDE path (Connect NAT to a VDE switch. netif=vp)\n"
+"    -V VDE path (Expose NAT via a reduced functionality VDE switch. netif=vs)\n"
+"    -t tun name (Expose NAT via a PTP TUN device. netif=tu)\n"
+"    -T tap name (Expose NAT via a TAP device with DHCP. netif=ta)\n"
 "\n", basename((char *) argv0));
 	exit(1);
 }
@@ -148,10 +159,16 @@ int main(int argc, char *argv[])
 	int dns_count;
 	char *str;
 	char *endptr;
+	char *vdeswitch;
+	char *vdeport;
+	char *tunname;
+	char *tapname;
 	int mtu;
 	int use_slirp;
 	unsigned int delay_ms;
 	float drop;
+	unsigned short nat_port_raw;
+	unsigned short nat_port_len;
 	int fd_in;
 	int fd_out;
 	ip_addr_t ipaddr;
@@ -199,12 +216,21 @@ int main(int argc, char *argv[])
 	mtu = 0;
 	pcap_entries = NULL;
 	non_local = 0;
+	nat_port_raw = 0;
+	nat_port_len = 0;
+	vdeswitch = NULL;
+	vdeport = NULL;
+	tunname = NULL;
+	tapname = NULL;
 
 	signal(SIGPIPE, SIG_IGN);
 
 	base = event_base_new();
 	lwip_init();
 	libevent_timeouts_init(base);
+#if LWIP_NAT
+	sys_timer_add_internal(base, LWIP_NAT_TICK_PERIOD_MS, nat_timer_tick);
+#endif
 
 
 #if LWIP_IPV4
@@ -253,7 +279,7 @@ int main(int argc, char *argv[])
 			host_add_search(str);
 	}
 
-	while ((c = getopt(argc, argv, "Sl:o:L:D:R:k:m:s:d:i:n:G:p:gh")) != -1) {
+	while ((c = getopt(argc, argv, "Sl:o:L:D:R:k:m:s:d:i:n:G:p:gu:U:v:V:t:T:h")) != -1) {
 
 		switch (c) {
 		case 'S':
@@ -368,6 +394,28 @@ int main(int argc, char *argv[])
 		case 'g':
 			non_local = 1;
 			break;
+		case 'u':
+			nat_port_raw = strtoul(optarg, &endptr, 0);
+			if (*endptr)
+				print_usage(argv[0]);
+			break;
+		case 'U':
+			nat_port_len = strtoul(optarg, &endptr, 0);
+			if (*endptr)
+				print_usage(argv[0]);
+			break;
+		case 'v':
+			vdeport = strdup(optarg);
+			break;
+		case 'V':
+			vdeswitch = strdup(optarg);
+			break;
+		case 't':
+			tunname = strdup(optarg);
+			break;
+		case 'T':
+			tapname = strdup(optarg);
+			break;
 		default:
 			print_usage(argv[0]);
 		}
@@ -420,6 +468,75 @@ int main(int argc, char *argv[])
 	if (mtu)
 		netif->mtu = mtu;
 
+	if (nat_port_raw || nat_port_len) {
+		struct netif *natif;
+		natif = udptapif_add(base, nat_port_raw, nat_port_len);
+		if (!natif)
+			return -1;
+		IP4_ADDR(&ipaddr4, 10, 0, 4, 1);
+		IP4_ADDR(&netmask4, 255, 255, 255, 0);
+		netif_set_ipaddr(natif, &ipaddr4);
+		netif_set_netmask(natif, &netmask4);
+		if (nat_add(netif, natif) < 0)
+			return -1;
+		netif_set_up(natif);
+	}
+
+	if (vdeport) {
+		struct netif *vportif;
+		vportif = vdeportif_add(base, vdeport);
+		if (!vportif)
+			return -1;
+		IP4_ADDR(&ipaddr4, 10, 0, 5, 1);
+		IP4_ADDR(&netmask4, 255, 255, 255, 0);
+		netif_set_ipaddr(vportif, &ipaddr4);
+		netif_set_netmask(vportif, &netmask4);
+		if (nat_add(netif, vportif) < 0)
+			return -1;
+		netif_set_up(vportif);
+	}
+
+	if (vdeswitch) {
+		struct netif *vswitchif;
+		vswitchif = vdeswitchif_add(base, vdeswitch);
+		if (!vswitchif)
+			return -1;
+		IP4_ADDR(&ipaddr4, 10, 0, 6, 1);
+		IP4_ADDR(&netmask4, 255, 255, 255, 0);
+		netif_set_ipaddr(vswitchif, &ipaddr4);
+		netif_set_netmask(vswitchif, &netmask4);
+		if (nat_add(netif, vswitchif) < 0)
+			return -1;
+		netif_set_up(vswitchif);
+	}
+
+	if (tunname) {
+		struct netif *tunif;
+		tunif = tunif_add(base, tunname, 0);
+		if (!tunif)
+			return -1;
+		IP4_ADDR(&ipaddr4, 10, 0, 7, 1);
+		IP4_ADDR(&netmask4, 255, 255, 255, 255);
+		netif_set_ipaddr(tunif, &ipaddr4);
+		netif_set_netmask(tunif, &netmask4);
+		if (nat_add(netif, tunif) < 0)
+			return -1;
+		netif_set_up(tunif);
+	}
+
+	if (tapname) {
+		struct netif *tapif;
+		tapif = tunif_add(base, tapname, 0);
+		if (!tapif)
+			return -1;
+		IP4_ADDR(&ipaddr4, 10, 0, 8, 1);
+		IP4_ADDR(&netmask4, 255, 255, 255, 0);
+		netif_set_ipaddr(tapif, &ipaddr4);
+		netif_set_netmask(tapif, &netmask4);
+		if (nat_add(netif, tapif) < 0)
+			return -1;
+		netif_set_up(tapif);
+	}
 
 #ifdef USE_PCAP
 	for (pcap_entry = pcap_entries; pcap_entry; pcap_entry = pcap_entry->next) {
