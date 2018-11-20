@@ -71,6 +71,8 @@ tunsocks_SOURCES = \
 	src/forward_remote.c \
 	src/nat.c \
 	src/dhcp_server.c \
+	src/http/http.c \
+	src/http/evhttp_extra.c \
 	src/main.c
 
 if HAVE_PCAP

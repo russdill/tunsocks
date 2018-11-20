@@ -11,12 +11,14 @@
 #include <signal.h>
 
 #include "socks.h"
+#include "http/http.h"
 #include "util/host.h"
 #include "forward_local.h"
 #include "forward_remote.h"
 #include "nat.h"
 
 #include "nat/nat.h"
+
 #include "util/pcap.h"
 #include "util/nettest.h"
 #include "util/libevent.h"
@@ -124,7 +126,8 @@ static void print_usage(const char *argv0)
 	fprintf(stderr,
 "usage: %s <options>\n\n"
 "    -L [bind_address:]bind_port:host_address:host_port\n"
-"    -D [bind_address:]bind_port\n"
+"    -D [bind_address:]bind_port SOCKS4a/5 proxy\n"
+"    -H [bind_address:]bind_port HTTP proxy\n"
 "    -R bind_port:host_address:host_port\n"
 "    -g Allow non-local clients (command line compatibility for ocproxy)\n"
 "    -k keep alive interval (seconds)\n"
@@ -192,6 +195,7 @@ int main(int argc, char *argv[])
 	struct conn_info *local;
 	struct conn_info *remote;
 	struct conn_info *socks;
+	struct conn_info *http;
 	struct conn_info *info;
 
 #if LWIP_IPV4
@@ -205,7 +209,7 @@ int main(int argc, char *argv[])
 	ip_addr_set_zero(&gateway6);
 #endif
 
-	local = remote = socks = NULL;
+	local = remote = socks = http = NULL;
 	dns_count = 0;
 	keep_alive = 0;
 	use_slirp = 0;
@@ -279,7 +283,7 @@ int main(int argc, char *argv[])
 			host_add_search(str);
 	}
 
-	while ((c = getopt(argc, argv, "Sl:o:L:D:R:k:m:s:d:i:n:G:p:gu:U:v:V:t:T:h")) != -1) {
+	while ((c = getopt(argc, argv, "Sl:o:L:D:H:R:k:m:s:d:i:n:G:p:gu:U:v:V:t:T:h")) != -1) {
 
 		switch (c) {
 		case 'S':
@@ -310,6 +314,14 @@ int main(int argc, char *argv[])
 
 			info->next = socks;
 			socks = info;
+			break;
+		case 'H':
+			info = parse_conn_info(optarg, 1, 2);
+			if (!info)
+				print_usage(argv[0]);
+
+			info->next = http;
+			http = info;
 			break;
 		case 'R':
 			info = parse_conn_info(optarg, 3, 3);
@@ -443,6 +455,17 @@ int main(int argc, char *argv[])
 		if (socks_listen(base, str, info->bind_port, keep_alive) < 0)
 			return -1;
 		socks = socks->next;
+		free_conn_info(info);
+	}
+
+	while (http) {
+		info = http;
+		str = info->bind && info->bind[0] ? info->bind : NULL;
+		if (!non_local)
+			str = str ? : "localhost";
+		if (http_listen(base, str, info->bind_port, keep_alive) < 0)
+			return -1;
+		http = http->next;
 		free_conn_info(info);
 	}
 
