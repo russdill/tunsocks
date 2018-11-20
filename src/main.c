@@ -15,6 +15,7 @@
 #include "forward_local.h"
 #include "forward_remote.h"
 #include "util/pcap.h"
+#include "util/nettest.h"
 #include "util/libevent.h"
 
 #include "netif/fdif.h"
@@ -126,6 +127,8 @@ static void print_usage(const char *argv0)
 "    -n netmask\n"
 "    -G gateway\n"
 "    -S (Use slirp interface instead VPN, useful for testing)\n"
+"    -l Add deLay (in ms) to inbound/outbound packets (useful for testing)\n"
+"    -o DrOp probability ([0.0..1.0]) for inbound/outbound (useful for testing)\n"
 #ifdef USE_PCAP
 "    -p pcap_file[:netif] (Default netif 'fd', VPN input)\n"
 #endif
@@ -144,6 +147,8 @@ int main(int argc, char *argv[])
 	char *endptr;
 	int mtu;
 	int use_slirp;
+	unsigned int delay_ms;
+	float drop;
 	int fd_in;
 	int fd_out;
 	ip_addr_t ipaddr;
@@ -184,6 +189,8 @@ int main(int argc, char *argv[])
 	dns_count = 0;
 	keep_alive = 0;
 	use_slirp = 0;
+	delay_ms = 0;
+	drop = 0.0;
 	fd_in = 0;
 	fd_out = 1;
 	mtu = 0;
@@ -243,11 +250,21 @@ int main(int argc, char *argv[])
 			host_add_search(str);
 	}
 
-	while ((c = getopt(argc, argv, "SL:D:R:k:m:s:d:i:n:G:p:gh")) != -1) {
+	while ((c = getopt(argc, argv, "Sl:o:L:D:R:k:m:s:d:i:n:G:p:gh")) != -1) {
 
 		switch (c) {
 		case 'S':
 			use_slirp = 1;
+			break;
+		case 'l':
+			delay_ms = strtoul(optarg, &endptr, 0);
+			if (*endptr)
+				print_usage(argv[0]);
+			break;
+		case 'o':
+			drop = strtof(optarg, &endptr);
+			if (*endptr || !(drop >= 0.0 && drop <= 1.0))
+				print_usage(argv[0]);
 			break;
 		case 'L':
 			info = parse_conn_info(optarg, 3, 4);
@@ -421,6 +438,9 @@ int main(int argc, char *argv[])
 			return -1;
 	}
 #endif
+
+	if (delay_ms || drop != 0.0)
+		nettest_add(base, netif, delay_ms, drop);
 
 	netif_set_up(netif);
 	event_base_dispatch(base);
