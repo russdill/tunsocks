@@ -33,7 +33,11 @@ tunsocks_SOURCES = \
 	lwip/src/core/ipv4/ip4_addr.c \
 	lwip/src/core/ipv4/ip4_frag.c \
 	lwip-libevent/netif/fdif.c \
+	lwip-libevent/netif/slirpif.c \
+	lwip-libevent/netif/slirpif_tcp.c \
+	lwip-libevent/netif/slirpif_udp.c \
 	lwip-libevent/util/host.c \
+	lwip-libevent/util/pbuf_iovec.c \
 	lwip-libevent/libevent.c \
 	src/socks4.c \
 	src/socks5.c \

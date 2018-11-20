@@ -18,6 +18,7 @@
 #include "util/libevent.h"
 
 #include "netif/fdif.h"
+#include "netif/slirpif.h"
 struct conn_info {
 	char *bind;
 	char *bind_port;
@@ -124,6 +125,7 @@ static void print_usage(const char *argv0)
 "    -i ip address (env INTERNAL_IP4_ADDRESS)\n"
 "    -n netmask\n"
 "    -G gateway\n"
+"    -S (Use slirp interface instead VPN, useful for testing)\n"
 #ifdef USE_PCAP
 "    -p pcap_file[:netif] (Default netif 'fd', VPN input)\n"
 #endif
@@ -141,6 +143,7 @@ int main(int argc, char *argv[])
 	char *str;
 	char *endptr;
 	int mtu;
+	int use_slirp;
 	int fd_in;
 	int fd_out;
 	ip_addr_t ipaddr;
@@ -180,6 +183,7 @@ int main(int argc, char *argv[])
 	local = remote = socks = NULL;
 	dns_count = 0;
 	keep_alive = 0;
+	use_slirp = 0;
 	fd_in = 0;
 	fd_out = 1;
 	mtu = 0;
@@ -239,9 +243,12 @@ int main(int argc, char *argv[])
 			host_add_search(str);
 	}
 
-	while ((c = getopt(argc, argv, "L:D:R:k:m:s:d:i:n:G:p:gh")) != -1) {
+	while ((c = getopt(argc, argv, "SL:D:R:k:m:s:d:i:n:G:p:gh")) != -1) {
 
 		switch (c) {
+		case 'S':
+			use_slirp = 1;
+			break;
 		case 'L':
 			info = parse_conn_info(optarg, 3, 4);
 			if (!info)
@@ -380,6 +387,10 @@ int main(int argc, char *argv[])
 		free_conn_info(info);
 	}
 
+	/* "External" interface */
+	if (use_slirp)
+		netif = slirpif_add(base);
+	else
 		netif = fdif_add(base, fd_in, fd_out, 0);
 	netif_set_default(netif);
 
