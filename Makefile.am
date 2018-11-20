@@ -3,6 +3,7 @@ AM_CFLAGS=\
 	-I$(srcdir)/lwip/src/include/ipv4 \
 	-I$(srcdir)/lwip/src/include/ipv6 \
 	-I$(srcdir)/lwip-libevent/include \
+	-I$(srcdir)/lwip-udhcpd \
 	-I$(srcdir)/include -Wall -Og -g
 
 if HAVE_PCAP
@@ -28,10 +29,16 @@ tunsocks_SOURCES = \
 	lwip/src/core/tcp_in.c \
 	lwip/src/core/tcp_out.c \
 	lwip/src/core/inet_chksum.c \
+	lwip/src/core/ipv4/etharp.c \
 	lwip/src/core/ipv4/icmp.c \
 	lwip/src/core/ipv4/ip4.c \
 	lwip/src/core/ipv4/ip4_addr.c \
 	lwip/src/core/ipv4/ip4_frag.c \
+	lwip/src/netif/ethernet.c \
+	lwip-udhcpd/udhcp_packet.c \
+	lwip-udhcpd/udhcp_common.c \
+	lwip-udhcpd/dhcpd.c \
+	lwip-udhcpd/domain_codec.c \
 	lwip-libevent/netif/fdif.c \
 	lwip-libevent/netif/slirpif.c \
 	lwip-libevent/netif/slirpif_tcp.c \
@@ -48,6 +55,7 @@ tunsocks_SOURCES = \
 	src/socks.c \
 	src/forward_local.c \
 	src/forward_remote.c \
+	src/dhcp_server.c \
 	src/main.c
 
 if HAVE_PCAP

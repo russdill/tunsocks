@@ -53,15 +53,17 @@
 #define MEMP_NUM_TCPIP_MSG_API		1024
 #define MEMP_NUM_TCPIP_MSG_INPKT	1024
 
-#define LWIP_ARP			0
+#define LWIP_ARP			1
 #define LWIP_RAW			1
 #define LWIP_ICMP			1
 #define LWIP_TCP_KEEPALIVE		1
 #define LWIP_TCP_TIMESTAMPS		1
+#define LWIP_ETHERNET			1
 #define LWIP_DNS			1
 #define LWIP_WND_SCALE			8
 #define DNS_TABLE_SIZE			255
 #define DNS_MAX_SERVERS			8
+#define LWIP_IP_ACCEPT_UDP_PORT(p)	(p == 67)
 
 #define TCP_MSS				1500
 #define TCP_WND                         (256*1024)
@@ -83,6 +85,7 @@
 #define NETIF_DEBUG			LWIP_DBG_OFF
 #define SLIRPIF_DEBUG			LWIP_DBG_OFF
 #define SOCKS_DEBUG			LWIP_DBG_OFF
+#define UDHCP_DEBUG			LWIP_DBG_OFF
 #define HOSTS_DEBUG			LWIP_DBG_OFF
 #define MEM_DEBUG			LWIP_DBG_OFF
 #define IP_DEBUG			LWIP_DBG_OFF
