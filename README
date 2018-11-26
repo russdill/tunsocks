@@ -1,10 +1,12 @@
 tunsocks
 --------
 
-tunsocks is a user-level SOCKS and port forwarding proxy for use with VPNs
-that typically interact with tun devices. Rather than passing bytes to and
+tunsocks is a user-level SOCKS, HTTP, and port forwarding proxy for use with
+VPNs that typically interact with tun devices. Rather than passing bytes to and
 from the tun device, they can pass the data to and from this user-level
 program. tunsocks is implemented using lwIP.
+
+Additionally, tunsocks provides connection sharing via NAT.
 
 tunsocks has been tested with OpenConnect:
 
@@ -15,17 +17,28 @@ Usage
 
 usage: tunsocks <options>
 
-    -L [bind_address:]port:host:hostport
-    -D [bind_address:]port
-    -R port:host:hostport
+    -L [bind_address:]bind_port:host_address:host_port
+    -D [bind_address:]bind_port SOCKS4a/5 proxy
+    -H [bind_address:]bind_port HTTP proxy
+    -R bind_port:host_address:host_port
+    -g Allow non-local clients (command line compatibility for ocproxy)
     -k keep alive interval (seconds)
     -m mtu (env INTERNAL_IP4_MTU)
     -s domain_search[,domain_search,...] (env CISCO_DEF_DOMAIN)
     -d dns,[dns,...] (env INTERNAL_IP4_DNS)
     -i ip address (env INTERNAL_IP4_ADDRESS)
     -n netmask
-    -g gateway
-    -p pcap_file
+    -G gateway
+    -S (Use slirp interface instead VPN, useful for testing)
+    -l Add deLay (in ms) to inbound/outbound packets (useful for testing)
+    -o DrOp probability ([0.0..1.0]) for inbound/outbound (useful for testing)
+    -p pcap_file[:netif] (Default netif 'fd', VPN input)
+    -u port (UDP listener port of TAP NAT with no length header, netif=ut)
+    -U port (UDP listener port of TAP NAT with 2 byte length header, netif=ut)
+    -v VDE path (Connect NAT to a VDE switch. netif=vp)
+    -V VDE path (Expose NAT via a reduced functionality VDE switch. netif=vs)
+    -t tun name (Expose NAT via a PTP TUN device. netif=tu)
+    -T tap name (Expose NAT via a TAP device with DHCP. netif=ta)
 
 Some options also accept input through environmental veriables (see env
 above). By default, tunsocks accepts network traffic on stdin, and outputs
@@ -45,6 +58,10 @@ to pass an alternate fd.
 	SOCKS proxy supports SOCKS 4, 4A, and 5. The BIND command is
 	accepted. If bind_address is not specified, it defaults to
 	localhost.
+
+-H [bind_address:]port
+
+	Start a http/https proxy on a local port and optional bind address.
 
 -R port:host:hostport
 
@@ -83,11 +100,64 @@ to pass an alternate fd.
 
 	IP gateway to use on the remote network.
 
--p pcap_file
+-S
+	Use slirp interface instead VPN for outbound connection. This uses
+	the host's IP stack to make outbound connections.
+
+-l delay_ms
+
+	Add a delay (in ms) to inbound/outbound packets (useful for testing).
+
+-o probability
+
+	Set a probability for dropping packets for inbound/outbound (useful
+	for testing).
+
+-p pcap_file[:netif]
 
 	If specified, all traffic is saved to the specified file in pcap
-	format.
+	format. The default interface is 'fd', which is the VPN interface.
 
+-u port
+
+	Provides a NAT connection to the VPN via raw packets. The network
+	provides a DHCP server that assigns clients an IP address, subnet,
+	default route, DNS server, and domain names appropriately. The network
+	is 10.0.4.0/24.
+
+	tunsocks will listen for raw Ethernet packets on the given UDP port.
+	Whenever it receives a packet, it will associated the sender's hardware
+	address with the sender's IP and port. Any packets destined for the
+	sender's IP address will be returned. Any packets destined for the
+	broadcast address will be sent to all current clients.
+
+	The netif name for use with -p i- 'ut'.
+
+-U port
+
+	Like -u, but all packets include a 2 byte big-endian length header.
+
+-v VDE path
+
+	Like -u, but connects to the given VDE switch. The network is
+	10.0.5.0/24. The netif name is 'vp'.
+
+-V VDE path
+
+	Like -u, but emulates a VDE switch. The network is 10.0.6.0/24. The
+	netif name is 'vs'.
+
+-T tap name
+
+	Like -u but sends and receives packets via a supplied TAP device. The
+	network is 10.0.7.0/24. The netif name is 'ta'.
+
+-t tun name
+
+	Like -T but operates with TUN devices at the IP layer. This operates
+	as a point-to-point interface and does not supply a DHCP server. The
+	client must correctly configure IP and DNS settings. The IP address
+	of the point-to-point device is 10.0.8.1. The netif name is 'tu'.
 
 Examples
 --------
@@ -183,6 +253,38 @@ proxy.pac files can support a wide variety of configurations, even multiplexing
 between multiple VPN connections. A proxy.pac file is generally assigned under
 the application or system proxy configuration page by selecting 'Automatic'
 and then using 'file:///path/to/proxy.pac' in the 'Configuration URL' field.
+
+Use of NAT with QEMU
+--------------------
+
+Multiple methods can be used with QEMU, but the simplest is the UDP interface:
+
+For QEMU:
+
+-nic socket,udp=127.0.0.1:22222,localaddr=127.0.0.1:22223,mac=52:54:00:12:34:56
+
+For tunsocks:
+
+-u 22222
+
+Note that different instances of QEMU should supply different localaddr ports.
+
+Use of NAT with Vagrant
+-----------------------
+
+Using the NAT interface with Vagrant is a little more complex as Vagrant
+requires a working interface to the host for ssh access:
+
+    vb.customize ["modifyvm", :id, "--nic1", "generic"]
+    vb.customize ["modifyvm", :id, "--nicgenericdrv1", "UDPTunnel"]
+    vb.customize ["modifyvm", :id, "--nicproperty1", "dest=127.0.0.1"]
+    vb.customize ["modifyvm", :id, "--nicproperty1", "dport=22222"]
+
+    vb.customize ["modifyvm", :id, "--nic2", "nat"]
+    vb.customize ["modifyvm", :id, "--natpf2", "ssh,tcp,127.0.0.1,2222,,22"]
+
+The above sets up two interfaces, one for the primary connection that uses
+the UDP NAT interface of tunsocks, and a second interface for ssh access.
 
 Credits
 -------
