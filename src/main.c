@@ -12,6 +12,7 @@
 
 #include "socks.h"
 #include "http/http.h"
+#include "http/http_server.h"
 #include "util/host.h"
 #include "forward_local.h"
 #include "forward_remote.h"
@@ -128,6 +129,7 @@ static void print_usage(const char *argv0)
 "    -L [bind_address:]bind_port:host_address:host_port\n"
 "    -D [bind_address:]bind_port SOCKS4a/5 proxy\n"
 "    -H [bind_address:]bind_port HTTP proxy\n"
+"    -P proxy_pac_file:bind_port HTTP server for proxy.pac\n"
 "    -R bind_port:host_address:host_port\n"
 "    -g Allow non-local clients (command line compatibility for ocproxy)\n"
 "    -k keep alive interval (seconds)\n"
@@ -196,6 +198,7 @@ int main(int argc, char *argv[])
 	struct conn_info *remote;
 	struct conn_info *socks;
 	struct conn_info *http;
+	struct conn_info *http_server;
 	struct conn_info *info;
 
 #if LWIP_IPV4
@@ -209,7 +212,7 @@ int main(int argc, char *argv[])
 	ip_addr_set_zero(&gateway6);
 #endif
 
-	local = remote = socks = http = NULL;
+	local = remote = socks = http = http_server = NULL;
 	dns_count = 0;
 	keep_alive = 0;
 	use_slirp = 0;
@@ -283,7 +286,7 @@ int main(int argc, char *argv[])
 			host_add_search(str);
 	}
 
-	while ((c = getopt(argc, argv, "Sl:o:L:D:H:R:k:m:s:d:i:n:G:p:gu:U:v:V:t:T:h")) != -1) {
+	while ((c = getopt(argc, argv, "Sl:o:L:D:H:P:R:k:m:s:d:i:n:G:p:gu:U:v:V:t:T:h")) != -1) {
 
 		switch (c) {
 		case 'S':
@@ -322,6 +325,14 @@ int main(int argc, char *argv[])
 
 			info->next = http;
 			http = info;
+			break;
+		case 'P':
+			info = parse_conn_info(optarg, 2, 2);
+			if (!info)
+				print_usage(argv[0]);
+
+			info->next = http_server;
+			http_server = info;
 			break;
 		case 'R':
 			info = parse_conn_info(optarg, 3, 3);
@@ -466,6 +477,14 @@ int main(int argc, char *argv[])
 		if (http_listen(base, str, info->bind_port, keep_alive) < 0)
 			return -1;
 		http = http->next;
+		free_conn_info(info);
+	}
+
+	while (http_server) {
+		info = http_server;
+		if (http_server_listen(base, info->host, info->bind_port) < 0)
+			return -1;
+		http_server = http_server->next;
 		free_conn_info(info);
 	}
 

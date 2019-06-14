@@ -72,6 +72,7 @@ tunsocks_SOURCES = \
 	src/nat.c \
 	src/dhcp_server.c \
 	src/http/http.c \
+	src/http/server.c \
 	src/http/evhttp_extra.c \
 	src/main.c
 

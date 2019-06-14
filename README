@@ -20,6 +20,7 @@ usage: tunsocks <options>
     -L [bind_address:]bind_port:host_address:host_port
     -D [bind_address:]bind_port SOCKS4a/5 proxy
     -H [bind_address:]bind_port HTTP proxy
+    -P proxy_pac_file:bind_port HTTP server for proxy.pac
     -R bind_port:host_address:host_port
     -g Allow non-local clients (command line compatibility for ocproxy)
     -k keep alive interval (seconds)
@@ -62,6 +63,13 @@ to pass an alternate fd.
 -H [bind_address:]port
 
 	Start a http/https proxy on a local port and optional bind address.
+
+-P proxy_pac_file:port
+
+	Start a http server on localhost at the given port serving up the
+	specified proxy PAC file. The server will respond to requests for
+	'/', '/proxy.pac', and '/wpad.dat'. The file is re-read each time
+	it is requested.
 
 -R port:host:hostport
 
