@@ -294,6 +294,27 @@ requires a working interface to the host for ssh access:
 The above sets up two interfaces, one for the primary connection that uses
 the UDP NAT interface of tunsocks, and a second interface for ssh access.
 
+Compile
+-------
+
+Compiling tunsocks is fairly easy one. You need to clone and initialize its git modules using following commands
+
+    git clone https://github.com/russdill/tunsocks
+    git submodule init
+    git submodule update
+
+Then you need to make sure all prerequisites are installed
+
+- `libevent`
+- `autotools`
+- `make`
+
+For compiling the code you just need to run:
+
+    ./autogen.sh
+    ./configure
+    make
+
 Credits
 -------
 

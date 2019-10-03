@@ -221,7 +221,9 @@ int main(int argc, char *argv[])
 	fd_in = 0;
 	fd_out = 1;
 	mtu = 0;
+#ifdef USE_PCAP
 	pcap_entries = NULL;
+#endif
 	non_local = 0;
 	nat_port_raw = 0;
 	nat_port_len = 0;
