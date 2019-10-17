@@ -506,7 +506,7 @@ client_request_cb(struct evhttp_request *client_req, void *ctx)
 	client_evcon = evhttp_request_get_connection(client_req);
 
 	port = evhttp_uri_get_port(client_req->uri_elems);
-	if (!strcasecmp(scheme, "http")) {
+	if (scheme && !strcasecmp(scheme, "http")) {
 		host = evhttp_request_get_host(client_req);
 		if (port == -1)
 			port = 80;
