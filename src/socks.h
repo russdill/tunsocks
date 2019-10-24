@@ -15,7 +15,7 @@ struct lwipevbuf;
 
 struct socks_server {
 	int keep_alive;
-	struct sockaddr addr;
+	struct sockaddr_storage addr;
 	socklen_t addr_len;
 };
 

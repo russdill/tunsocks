@@ -91,20 +91,20 @@ socks5_response(struct socks_data *sdata, int code, int connected, int die)
 	LWIP_DEBUGF(SOCKS_DEBUG, ("%s: code %d, die %d\n", __func__, code, die));
 	if (!die) {
 		if (data->cmd == SOCKS5_CMD_UDP) {
-			struct sockaddr *sa = &sdata->server->addr;
-			if (sa->sa_family == AF_INET6) {
+			struct sockaddr_storage *ss = &sdata->server->addr;
+			if (ss->ss_family == AF_INET6) {
 				struct sockaddr_in6 *sin;
-				sin = (struct sockaddr_in6 *) sa;
+				sin = (struct sockaddr_in6 *) ss;
 				req.atyp = SOCKS5_ATYP_IPV6;
 				addr = &sin->sin6_addr.s6_addr;
 				addr_len = 16;
 			} else {
 				struct sockaddr_in *sin;
-				sin = (struct sockaddr_in *) sa;
+				sin = (struct sockaddr_in *) ss;
 				req.atyp = SOCKS5_ATYP_IPV4;
 				addr = &sin->sin_addr.s_addr;
 				addr_len = 4;
-				if (sa->sa_family != AF_INET) {
+				if (ss->ss_family != AF_INET) {
 					req.cmd = SOCKS5_RESP_FAILURE;
 					die = 1;
 				}
