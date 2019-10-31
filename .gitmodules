@@ -10,3 +10,6 @@
 [submodule "lwip-nat"]
 	path = lwip-nat
 	url = https://github.com/russdill/lwip-nat.git
+[submodule "eth_udp"]
+	path = eth_udp
+	url = https://github.com/russdill/eth_udp.git
