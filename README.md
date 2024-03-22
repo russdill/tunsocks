@@ -79,6 +79,10 @@ to pass an alternate fd.
 	hostport is not specified, it defaults to port, if host is not
 	specified, it defaults to localhost.
 
+-g Allow non-local clients
+
+	Allow non-local clients (command line compatibility for ocproxy)
+
 -k keep alive interval (seconds)
 
 	TCP keepalive options for all connections on the remote network.
@@ -104,7 +108,7 @@ to pass an alternate fd.
 
 	Netmask to use on the remote network.
 
--g gateway
+-G gateway
 
 	IP gateway to use on the remote network.
 
@@ -178,7 +182,7 @@ SSH connections on the remote network to our given IP address will connect
 to our local SSH server. A HTTP proxy is available on the remote network
 for accessing specific hosts, it is accessible via localhost:8888.
 Openconnect sets the other necessary parameters via environmental variables.
-
+g gateway
 
 tsocks configuration
 --------------------
